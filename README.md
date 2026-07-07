@@ -52,11 +52,11 @@ npm start                # http://localhost:3000
 
 `10_PRO目錄.md` > 最新年度上市簡報（2026>2025>2024）> `06_重要實證與禁用話術索引.md` > `04_產品成分與分類表.md` > `12_產品索引總表.md` > `03_業務FAQ與標準回答.md` > `01_品牌與業務定位.md` > `02_產品與療程總覽.md` > `05_話術訓練與L1L2L3評分.md`
 
-知識庫整包放入 system prompt 並透過 prompt caching 快取，重複對話成本大幅降低。
+知識庫以「章節目錄＋search_knowledge 工具」方式供 AI 查詢（RAG），system prompt 只放輕量索引並透過 prompt caching 快取。
 
 ## 客製化
 
-- **演練主題／難度／評分構面／六關卡／測驗模組**：`config/trainer-config.json`
+- **演練主題／難度／評分構面／六關卡／測驗模組／知識問答建議提問**：`config/trainer-config.json`
 - **角色設定與各功能指令**：`prompts.js`
 - **報告模版（十一節）**：`report.js`
 - **知識庫檔案**：`knowledge/`（雲端部署用副本）；本機開發預設讀取 Desktop 上的即時資料夾
@@ -64,13 +64,16 @@ npm start                # http://localhost:3000
 ## 專案結構
 
 ```
-server.js          Express 伺服器與 API 路由
+server.js          Express 伺服器與 API 路由（含知識庫搜尋工具迴圈）
 prompts.js          角色設定與各功能提示詞
-knowledge.js         知識庫載入邏輯
+knowledge.js         知識庫載入與關鍵字搜尋（切塊索引）
 report.js            Word／PDF 報告產生（含題庫 Word）
-config/              演練主題／難度／評分設定
+config/              演練主題／難度／評分／建議提問設定
 knowledge/           知識庫 Markdown 副本（雲端部署用）
 fonts/               PDF 用中文字型（Noto Sans TC，確保任何平台皆可產生 PDF）
 public/              完整版前端（server.js 提供）
-docs/                GitHub Pages 靜態展示版（固定腳本、無真實 AI）
+docs/                GitHub Pages 靜態展示版（同一份前端 + demo-data.js 固定腳本）
 ```
+
+> `docs/` 的 `index.html`／`app.js`／`style.css` 與 `public/` 為同一份程式碼，僅多載入 `demo-data.js`
+> 攔截 API 呼叫改回固定腳本。改版時同步複製即可：`cp public/app.js public/style.css docs/`（index.html 需保留 docs 版開頭的靜態提示與 demo-data.js 標籤）。

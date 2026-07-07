@@ -2,172 +2,249 @@
 <html lang="zh-Hant">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>O'right｜PRO 業務教育教練（靜態展示版）</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
+  <meta name="theme-color" content="#19322f" />
+  <title>O'right｜PRO 業務教育教練</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
   <div class="static-notice">
-    🔎 這是<b>靜態展示版</b>，僅供快速預覽介面與流程，對話內容為固定示範腳本、不是真正的 AI 回覆，報告下載功能也已停用。
-    完整可用版本（真實 AI 對話＋知識庫查找＋報告下載）請見
+    🔎 這是<b>靜態展示版</b>，對話為固定示範腳本、非真實 AI，檔案下載已停用。完整版請見
     <a href="https://github.com/brandmarketing-coder/PRO_AI_trainer#部署完整版本" target="_blank" rel="noopener">部署說明</a>。
   </div>
-  <header class="topbar">
-    <div class="brand">
-      <span class="brand-logo">O'right｜PRO</span>
-      <span class="brand-sub">業務教育教練</span>
+  <!-- 頂部導覽列：左返回、中標題、右動作 -->
+  <header class="appbar">
+    <div class="appbar-left">
+      <button id="nav-back" class="nav-back hidden" aria-label="返回">
+        <svg width="22" height="22" viewBox="0 0 24 24" fill="none"><path d="M15 5l-7 7 7 7" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
+      <div id="appbar-brand" class="appbar-brand">
+        <span class="brand-logo">O'right｜PRO</span>
+        <span class="brand-sub">業務教育教練</span>
+      </div>
+      <div id="appbar-title" class="appbar-title hidden"></div>
     </div>
-    <div class="topbar-right">
-      <button id="btn-home" class="btn-ghost hidden">← 回首頁</button>
-      <div class="demo-badge">靜態展示版</div>
+    <div class="appbar-right">
+      <span id="demo-badge" class="demo-badge hidden">示範模式</span>
+      <button id="btn-finish" class="appbar-action hidden">結束並評分</button>
     </div>
   </header>
 
-  <!-- 首頁：三大功能 -->
-  <main id="screen-home" class="screen">
-    <section class="card">
-      <h2>今天想練什麼？</h2>
-      <p class="hint">我是教育長的 AI 分身，陪你在正式上場前把品牌、產品、話術與開發能力練起來。</p>
-      <div class="feature-grid">
-        <button class="feature-card" data-goto="setup">
-          <div class="f-icon">🎭</div>
-          <div class="f-name">情境演練</div>
-          <div class="f-desc">陌生開發、句點王、軟釘子三種沙龍情境，逐句教練回饋，結束產出正式訓練報告。</div>
-        </button>
-        <button class="feature-card" data-goto="qa">
-          <div class="f-icon">📚</div>
-          <div class="f-name">知識問答</div>
-          <div class="f-desc">產品、成分、價格、綠色關鍵、話術……直接問，依知識庫優先順序回答。</div>
-        </button>
-        <button class="feature-card" data-goto="quiz">
-          <div class="f-icon">📝</div>
-          <div class="f-name">隨機測驗</div>
-          <div class="f-desc">七大模組一題一題考你，逐題評分講解，也可以下載完整 70 題題庫。</div>
-        </button>
-      </div>
-    </section>
-  </main>
+  <div id="screens" class="screens">
 
-  <!-- 情境演練：設定 -->
-  <main id="screen-setup" class="screen hidden">
-    <section class="card">
-      <h2>情境演練</h2>
-      <p class="hint">AI 扮演沙龍店長與你對練。演練中不評分，每句話可展開教練回饋；講出禁用話術會即時糾錯。</p>
-
-      <label class="field-label">業務夥伴姓名（會顯示在報告上）</label>
-      <input id="trainee-name" type="text" placeholder="例：王小明" maxlength="20" />
-
-      <label class="field-label">演練主題</label>
-      <div id="theme-list" class="scenario-grid"></div>
-
-      <label class="field-label">訓練模式</label>
-      <div id="mode-list" class="mode-row"></div>
-
-      <button id="btn-start" class="btn-primary" disabled>開始演練 →</button>
-    </section>
-  </main>
-
-  <!-- 情境演練：對話 -->
-  <main id="screen-chat" class="screen hidden">
-    <div class="chat-header card">
-      <div>
-        <div id="chat-title" class="chat-title"></div>
-        <div id="chat-sub" class="chat-sub"></div>
-      </div>
-      <button id="btn-finish" class="btn-outline">結束演練並產出報告</button>
-    </div>
-    <div id="chat-window" class="chat-window"></div>
-    <div class="chat-input-row">
-      <textarea id="chat-input" rows="2" placeholder="輸入你（業務夥伴）要說的話…（Enter 送出，Shift+Enter 換行）"></textarea>
-      <button id="btn-send" class="btn-primary">送出</button>
-    </div>
-  </main>
-
-  <!-- 情境演練：報告 -->
-  <main id="screen-result" class="screen hidden">
-    <section class="card">
-      <h2>O'right｜PRO 業務訓練評估報告</h2>
-      <div id="result-meta" class="result-meta"></div>
-      <div id="result-total" class="result-total"></div>
-
-      <h3>五大構面總評</h3>
-      <div id="result-scores"></div>
-
-      <h3>關鍵環節完成度</h3>
-      <ul id="result-checkpoints" class="checkpoint-list"></ul>
-
-      <h3>可改善方向</h3>
-      <ul id="result-improvements"></ul>
-
-      <h3>建議改寫</h3>
-      <p class="rewrite-label">可以這樣說：</p>
-      <blockquote id="result-rewrite" class="rewrite-box"></blockquote>
-
-      <h3>整體評估</h3>
-      <p id="result-overall"></p>
-
-      <h3>下一步訓練建議</h3>
-      <table class="next-steps-table">
-        <thead><tr><th>訓練方向</th><th>建議做法</th></tr></thead>
-        <tbody id="result-steps"></tbody>
-      </table>
-
-      <p class="hint" style="margin-top:14px">靜態展示版不提供報告下載／分享，完整版可下載 Word／PDF 十一節完整報告。</p>
-      <div class="result-actions">
-        <button id="btn-docx" class="btn-primary">下載 Word 報告</button>
-        <button id="btn-pdf" class="btn-primary">下載 PDF 報告</button>
-        <button id="btn-share" class="btn-outline">分享給主管</button>
-        <button id="btn-restart" class="btn-outline">再練一次</button>
-      </div>
-    </section>
-  </main>
-
-  <!-- 知識問答 -->
-  <main id="screen-qa" class="screen hidden">
-    <div class="chat-header card">
-      <div>
-        <div class="chat-title">📚 知識問答</div>
-        <div class="chat-sub">產品、成分、規格、價格、綠色關鍵、話術都可以問；靜態展示版固定回覆同一則範例。</div>
-      </div>
-    </div>
-    <div id="qa-window" class="chat-window"></div>
-    <div class="chat-input-row">
-      <textarea id="qa-input" rows="2" placeholder="例：咖啡因養髮液怎麼跟客人介紹？6號洗髮多少錢？"></textarea>
-      <button id="btn-qa-send" class="btn-primary">送出</button>
-    </div>
-  </main>
-
-  <!-- 隨機測驗 -->
-  <main id="screen-quiz" class="screen hidden">
-    <section class="card">
-      <h2>📝 隨機測驗</h2>
-      <div id="quiz-setup">
-        <p class="hint">選擇出題範圍後開始，一次一題，回答後立即評分講解。</p>
-        <label class="field-label">出題範圍</label>
-        <div id="quiz-module-list" class="mode-row"></div>
-        <div class="result-actions">
-          <button id="btn-quiz-start" class="btn-primary" disabled>開始測驗 →</button>
-          <button id="btn-quiz-bank" class="btn-outline">下載完整題庫（70 題 Word）</button>
+    <!-- 首頁 -->
+    <main id="screen-home" class="screen scroll">
+      <div class="container">
+        <div class="hero">
+          <div class="hero-mark"></div>
+          <h1>今天想練什麼？</h1>
+          <p>我是教育長的 AI 分身，<br />陪你在正式上場前把實力練起來。</p>
         </div>
-        <p class="hint" id="quiz-bank-hint">※ 靜態展示版不提供題庫下載，請使用完整版。</p>
+        <div class="feature-list">
+          <button class="feature-card" data-goto="rp-theme">
+            <span class="f-icon">🎭</span>
+            <span class="f-body">
+              <span class="f-name">情境演練</span>
+              <span class="f-desc">和 AI 店長實戰對練，結束產出訓練報告</span>
+            </span>
+            <span class="f-arrow">›</span>
+          </button>
+          <button class="feature-card" data-goto="qa">
+            <span class="f-icon">📚</span>
+            <span class="f-body">
+              <span class="f-name">知識問答</span>
+              <span class="f-desc">產品、價格、綠色關鍵、話術，隨問隨查</span>
+            </span>
+            <span class="f-arrow">›</span>
+          </button>
+          <button class="feature-card" data-goto="quiz-setup">
+            <span class="f-icon">📝</span>
+            <span class="f-body">
+              <span class="f-name">隨機測驗</span>
+              <span class="f-desc">七大模組逐題考核，即問即評</span>
+            </span>
+            <span class="f-arrow">›</span>
+          </button>
+        </div>
       </div>
+    </main>
 
-      <div id="quiz-play" class="hidden">
+    <!-- 演練步驟一：選主題 -->
+    <main id="screen-rp-theme" class="screen scroll hidden">
+      <div class="container">
+        <div class="step-head">
+          <div class="step-dots"><span class="on"></span><span></span><span></span></div>
+          <h2>想練哪一種情境？</h2>
+          <p class="hint">選一個，馬上進入下一步</p>
+        </div>
+        <div id="theme-list" class="option-list"></div>
+      </div>
+    </main>
+
+    <!-- 演練步驟二：選模式 -->
+    <main id="screen-rp-mode" class="screen scroll hidden">
+      <div class="container">
+        <div class="step-head">
+          <div class="step-dots"><span class="done"></span><span class="on"></span><span></span></div>
+          <h2>選擇訓練模式</h2>
+          <p class="hint">依你的經驗選擇店長的難搞程度</p>
+        </div>
+        <div id="mode-list" class="option-list"></div>
+      </div>
+    </main>
+
+    <!-- 演練步驟三：確認開始 -->
+    <main id="screen-rp-name" class="screen scroll hidden">
+      <div class="container">
+        <div class="step-head">
+          <div class="step-dots"><span class="done"></span><span class="done"></span><span class="on"></span></div>
+          <h2>準備開始</h2>
+        </div>
+        <div id="rp-summary" class="summary-card"></div>
+        <label class="field-label" for="trainee-name">你的姓名（會顯示在報告上，可留空）</label>
+        <input id="trainee-name" type="text" placeholder="例：王小明" maxlength="20" autocomplete="name" />
+        <button id="btn-start" class="btn-primary btn-block">開始演練</button>
+      </div>
+    </main>
+
+    <!-- 演練對話 -->
+    <main id="screen-chat" class="screen chat-layout hidden">
+      <div id="chat-context" class="chat-context"></div>
+      <div id="chat-window" class="chat-window"></div>
+      <div class="input-bar">
+        <button id="mic-chat" class="mic-btn" aria-label="語音輸入">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><rect x="9" y="3" width="6" height="11" rx="3" stroke="currentColor" stroke-width="1.8"/><path d="M5 11a7 7 0 0014 0M12 18v3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        </button>
+        <textarea id="chat-input" rows="1" placeholder="輸入你要說的話…"></textarea>
+        <button id="btn-send" class="send-btn" aria-label="送出">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M4 12l16-7-5 7 5 7-16-7z" fill="currentColor"/></svg>
+        </button>
+      </div>
+    </main>
+
+    <!-- 報告產出進度 -->
+    <main id="screen-progress" class="screen hidden">
+      <div class="progress-wrap">
+        <div class="progress-ring"><div class="progress-ring-inner">📋</div></div>
+        <h2>教育長評估中</h2>
+        <p class="hint">正在整理你的演練表現，請稍候</p>
+        <div class="progress-bar"><div id="progress-fill"></div></div>
+        <ul id="progress-steps" class="progress-steps"></ul>
+      </div>
+    </main>
+
+    <!-- 評估報告 -->
+    <main id="screen-result" class="screen scroll hidden">
+      <div class="container">
+        <div class="section-card result-head">
+          <div id="result-meta" class="result-meta"></div>
+          <div id="result-total" class="result-total"></div>
+        </div>
+        <div class="section-card">
+          <h3>五大構面總評</h3>
+          <div id="result-scores"></div>
+        </div>
+        <div class="section-card">
+          <h3>關鍵環節完成度</h3>
+          <ul id="result-checkpoints" class="checkpoint-list"></ul>
+        </div>
+        <div class="section-card">
+          <h3>可改善方向</h3>
+          <ul id="result-improvements" class="plain-list"></ul>
+        </div>
+        <div class="section-card">
+          <h3>建議改寫</h3>
+          <p class="rewrite-label">可以這樣說：</p>
+          <blockquote id="result-rewrite" class="rewrite-box"></blockquote>
+        </div>
+        <div class="section-card">
+          <h3>整體評估</h3>
+          <p id="result-overall" class="body-text"></p>
+        </div>
+        <div class="section-card">
+          <h3>下一步訓練建議</h3>
+          <table class="next-steps-table">
+            <thead><tr><th>訓練方向</th><th>建議做法</th></tr></thead>
+            <tbody id="result-steps"></tbody>
+          </table>
+        </div>
+        <p class="hint center">完整報告（含固定評分標準、逐輪原文與逐輪評分）請下載檔案</p>
+        <div class="result-actions">
+          <button id="btn-docx" class="btn-primary">下載 Word</button>
+          <button id="btn-pdf" class="btn-primary">下載 PDF</button>
+          <button id="btn-share" class="btn-outline">分享給主管</button>
+          <button id="btn-restart" class="btn-outline">再練一次</button>
+        </div>
+      </div>
+    </main>
+
+    <!-- 知識問答 -->
+    <main id="screen-qa" class="screen chat-layout hidden">
+      <div id="qa-window" class="chat-window">
+        <div id="qa-starter" class="qa-starter">
+          <p class="qa-starter-title">想問什麼？先從這些方向開始：</p>
+          <div id="qa-categories"></div>
+        </div>
+      </div>
+      <div id="qa-chips" class="chips-bar hidden"></div>
+      <div class="input-bar">
+        <button id="mic-qa" class="mic-btn" aria-label="語音輸入">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><rect x="9" y="3" width="6" height="11" rx="3" stroke="currentColor" stroke-width="1.8"/><path d="M5 11a7 7 0 0014 0M12 18v3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        </button>
+        <textarea id="qa-input" rows="1" placeholder="輸入你的問題…"></textarea>
+        <button id="btn-qa-send" class="send-btn" aria-label="送出">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M4 12l16-7-5 7 5 7-16-7z" fill="currentColor"/></svg>
+        </button>
+      </div>
+    </main>
+
+    <!-- 測驗：選範圍 -->
+    <main id="screen-quiz-setup" class="screen scroll hidden">
+      <div class="container">
+        <div class="step-head">
+          <h2>想考哪個範圍？</h2>
+          <p class="hint">一次一題，回答後立即評分講解</p>
+        </div>
+        <div id="quiz-module-list" class="option-list"></div>
+        <button id="btn-quiz-bank" class="link-btn">📄 下載完整題庫（70 題 Word，需數分鐘）</button>
+      </div>
+    </main>
+
+    <!-- 測驗：作答 -->
+    <main id="screen-quiz-play" class="screen scroll hidden">
+      <div class="container">
         <div id="quiz-progress" class="quiz-progress"></div>
-        <div id="quiz-question" class="quiz-question"></div>
-        <textarea id="quiz-answer" rows="4" placeholder="輸入你的回答…"></textarea>
-        <div class="result-actions">
-          <button id="btn-quiz-submit" class="btn-primary">送出回答</button>
-          <button id="btn-quiz-next" class="btn-primary hidden">下一題 →</button>
-          <button id="btn-quiz-end" class="btn-outline">結束測驗</button>
+        <div id="quiz-question" class="section-card quiz-question"></div>
+        <div class="quiz-answer-wrap">
+          <textarea id="quiz-answer" rows="4" placeholder="輸入你的回答…"></textarea>
+          <button id="mic-quiz" class="mic-btn mic-inline" aria-label="語音輸入">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><rect x="9" y="3" width="6" height="11" rx="3" stroke="currentColor" stroke-width="1.8"/><path d="M5 11a7 7 0 0014 0M12 18v3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+          </button>
         </div>
-        <div id="quiz-feedback" class="hidden"></div>
+        <button id="btn-quiz-submit" class="btn-primary btn-block">送出回答</button>
+        <div id="quiz-feedback" class="section-card hidden"></div>
+        <button id="btn-quiz-next" class="btn-primary btn-block hidden">下一題</button>
       </div>
-    </section>
-  </main>
+    </main>
 
-  <div id="loading" class="loading hidden"><div class="spinner"></div><span id="loading-text">思考中…</span></div>
+  </div>
 
-  <script src="demo-app.js"></script>
+  <!-- 確認視窗 -->
+  <div id="modal" class="modal-backdrop hidden">
+    <div class="modal">
+      <h3 id="modal-title"></h3>
+      <p id="modal-body"></p>
+      <div class="modal-actions">
+        <button id="modal-cancel" class="btn-outline"></button>
+        <button id="modal-ok" class="btn-primary"></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 提示訊息 -->
+  <div id="toast" class="toast hidden"></div>
+
+  <script src="demo-data.js"></script>
+  <script src="app.js"></script>
 </body>
 </html>

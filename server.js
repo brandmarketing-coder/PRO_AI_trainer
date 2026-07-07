@@ -93,6 +93,23 @@ async function callAgentic(featureText, initialMessages, schema, { maxTokens = 8
   throw new Error("查詢知識庫次數過多，請簡化問題後再試一次。");
 }
 
+// 不帶工具的單次呼叫：用於已備妥所有素材、不需查知識庫的快速任務（例如測驗批改）
+async function callDirect(featureText, messages, schema, maxTokens = 4000) {
+  const response = await anthropic.messages.create({
+    model: MODEL,
+    max_tokens: maxTokens,
+    system: systemBlocks(featureText),
+    messages,
+    ...(schema ? { output_config: { format: { type: "json_schema", schema } } } : {})
+  });
+  if (response.stop_reason === "refusal") throw new Error("模型拒絕回應此內容");
+  if (schema) {
+    const text = response.content.find((b) => b.type === "text");
+    return JSON.parse(text.text);
+  }
+  return response.content.filter((b) => b.type === "text").map((b) => b.text).join("\n");
+}
+
 function getTheme(id) {
   return config.themes.find((t) => t.id === id);
 }
@@ -222,9 +239,10 @@ const QUIZ_Q_SCHEMA = {
     module: { type: "string" },
     type: { type: "string" },
     question: { type: "string" },
-    focus: { type: "string" }
+    focus: { type: "string" },
+    reference: { type: "string", description: "出題時依知識庫查證的參考答案，批改時直接使用（不顯示給作答者）" }
   },
-  required: ["module", "type", "question", "focus"],
+  required: ["module", "type", "question", "focus", "reference"],
   additionalProperties: false
 };
 
@@ -339,7 +357,8 @@ const DEMO_QUIZ_Q = {
   module: "品牌",
   type: "知識題",
   question: "客人問：「你們說的『綠色』到底是什麼意思？跟其他天然品牌差在哪？」請用業務的話回答，至少講出兩個 O'right 的綠色關鍵。",
-  focus: "能否具體講出綠色關鍵（如 USDA Biobased、PCR 再生瓶器、零碳綠工廠、RE100）而非空泛形容"
+  focus: "能否具體講出綠色關鍵（如 USDA Biobased、PCR 再生瓶器、零碳綠工廠、RE100）而非空泛形容",
+  reference: "O'right 的綠是可驗證的：USDA Biobased 生物基認證與碳-14 檢測證明成分來源、PCR 再生瓶器、零碳綠工廠與 RE100 再生能源承諾。與一般「天然」品牌的差異在於全部有第三方認證可查。"
 };
 
 const DEMO_QUIZ_GRADE = {
@@ -358,6 +377,7 @@ app.get("/api/config", (req, res) => {
     levels: config.levels,
     checkpoints: config.checkpoints,
     quizModules: config.quizModules,
+    qaSuggestions: config.qaSuggestions,
     knowledgeFiles: KNOWLEDGE.files,
     knowledgeDir: KNOWLEDGE_DIR,
     demo: !anthropic,
@@ -452,12 +472,17 @@ app.post("/api/quiz/grade", async (req, res) => {
   try {
     const { question, answer } = req.body;
     if (!anthropic) return res.json(DEMO_QUIZ_GRADE);
-    const result = await callAgentic(
+    // 批改直接使用出題時查證好的參考答案，不再查知識庫（單次呼叫，速度快）
+    const result = await callDirect(
       prompts.buildQuizGrade(),
       [
         {
           role: "user",
-          content: `題目（${question.module}｜${question.type}）：${question.question}\n評分重點：${question.focus}\n\n我的回答：${answer}`
+          content:
+            `題目（${question.module}｜${question.type}）：${question.question}\n` +
+            `評分重點：${question.focus}\n` +
+            `出題時查證的參考答案（依此批改）：${question.reference || "（未提供，請依評分重點批改）"}\n\n` +
+            `我的回答：${answer}`
         }
       ],
       QUIZ_GRADE_SCHEMA
