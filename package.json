@@ -1,0 +1,16 @@
+{
+  "name": "oright-salon-trainer",
+  "version": "1.0.0",
+  "description": "O'right 沙龍教育訓練機器人（網頁版）— 業務應答練習與評分",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.90.0",
+    "docx": "^9.5.0",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.0",
+    "pdfkit": "^0.15.0"
+  }
+}

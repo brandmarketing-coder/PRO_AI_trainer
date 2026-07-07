@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>O'right｜PRO 業務教育教練（靜態展示版）</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="static-notice">
+    🔎 這是<b>靜態展示版</b>，僅供快速預覽介面與流程，對話內容為固定示範腳本、不是真正的 AI 回覆，報告下載功能也已停用。
+    完整可用版本（真實 AI 對話＋知識庫查找＋報告下載）請見
+    <a href="https://github.com/brandmarketing-coder/PRO_AI_trainer#部署完整版本" target="_blank" rel="noopener">部署說明</a>。
+  </div>
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-logo">O'right｜PRO</span>
+      <span class="brand-sub">業務教育教練</span>
+    </div>
+    <div class="topbar-right">
+      <button id="btn-home" class="btn-ghost hidden">← 回首頁</button>
+      <div class="demo-badge">靜態展示版</div>
+    </div>
+  </header>
+
+  <!-- 首頁：三大功能 -->
+  <main id="screen-home" class="screen">
+    <section class="card">
+      <h2>今天想練什麼？</h2>
+      <p class="hint">我是教育長的 AI 分身，陪你在正式上場前把品牌、產品、話術與開發能力練起來。</p>
+      <div class="feature-grid">
+        <button class="feature-card" data-goto="setup">
+          <div class="f-icon">🎭</div>
+          <div class="f-name">情境演練</div>
+          <div class="f-desc">陌生開發、句點王、軟釘子三種沙龍情境，逐句教練回饋，結束產出正式訓練報告。</div>
+        </button>
+        <button class="feature-card" data-goto="qa">
+          <div class="f-icon">📚</div>
+          <div class="f-name">知識問答</div>
+          <div class="f-desc">產品、成分、價格、綠色關鍵、話術……直接問，依知識庫優先順序回答。</div>
+        </button>
+        <button class="feature-card" data-goto="quiz">
+          <div class="f-icon">📝</div>
+          <div class="f-name">隨機測驗</div>
+          <div class="f-desc">七大模組一題一題考你，逐題評分講解，也可以下載完整 70 題題庫。</div>
+        </button>
+      </div>
+    </section>
+  </main>
+
+  <!-- 情境演練：設定 -->
+  <main id="screen-setup" class="screen hidden">
+    <section class="card">
+      <h2>情境演練</h2>
+      <p class="hint">AI 扮演沙龍店長與你對練。演練中不評分，每句話可展開教練回饋；講出禁用話術會即時糾錯。</p>
+
+      <label class="field-label">業務夥伴姓名（會顯示在報告上）</label>
+      <input id="trainee-name" type="text" placeholder="例：王小明" maxlength="20" />
+
+      <label class="field-label">演練主題</label>
+      <div id="theme-list" class="scenario-grid"></div>
+
+      <label class="field-label">訓練模式</label>
+      <div id="mode-list" class="mode-row"></div>
+
+      <button id="btn-start" class="btn-primary" disabled>開始演練 →</button>
+    </section>
+  </main>
+
+  <!-- 情境演練：對話 -->
+  <main id="screen-chat" class="screen hidden">
+    <div class="chat-header card">
+      <div>
+        <div id="chat-title" class="chat-title"></div>
+        <div id="chat-sub" class="chat-sub"></div>
+      </div>
+      <button id="btn-finish" class="btn-outline">結束演練並產出報告</button>
+    </div>
+    <div id="chat-window" class="chat-window"></div>
+    <div class="chat-input-row">
+      <textarea id="chat-input" rows="2" placeholder="輸入你（業務夥伴）要說的話…（Enter 送出，Shift+Enter 換行）"></textarea>
+      <button id="btn-send" class="btn-primary">送出</button>
+    </div>
+  </main>
+
+  <!-- 情境演練：報告 -->
+  <main id="screen-result" class="screen hidden">
+    <section class="card">
+      <h2>O'right｜PRO 業務訓練評估報告</h2>
+      <div id="result-meta" class="result-meta"></div>
+      <div id="result-total" class="result-total"></div>
+
+      <h3>五大構面總評</h3>
+      <div id="result-scores"></div>
+
+      <h3>關鍵環節完成度</h3>
+      <ul id="result-checkpoints" class="checkpoint-list"></ul>
+
+      <h3>可改善方向</h3>
+      <ul id="result-improvements"></ul>
+
+      <h3>建議改寫</h3>
+      <p class="rewrite-label">可以這樣說：</p>
+      <blockquote id="result-rewrite" class="rewrite-box"></blockquote>
+
+      <h3>整體評估</h3>
+      <p id="result-overall"></p>
+
+      <h3>下一步訓練建議</h3>
+      <table class="next-steps-table">
+        <thead><tr><th>訓練方向</th><th>建議做法</th></tr></thead>
+        <tbody id="result-steps"></tbody>
+      </table>
+
+      <p class="hint" style="margin-top:14px">靜態展示版不提供報告下載／分享，完整版可下載 Word／PDF 十一節完整報告。</p>
+      <div class="result-actions">
+        <button id="btn-docx" class="btn-primary">下載 Word 報告</button>
+        <button id="btn-pdf" class="btn-primary">下載 PDF 報告</button>
+        <button id="btn-share" class="btn-outline">分享給主管</button>
+        <button id="btn-restart" class="btn-outline">再練一次</button>
+      </div>
+    </section>
+  </main>
+
+  <!-- 知識問答 -->
+  <main id="screen-qa" class="screen hidden">
+    <div class="chat-header card">
+      <div>
+        <div class="chat-title">📚 知識問答</div>
+        <div class="chat-sub">產品、成分、規格、價格、綠色關鍵、話術都可以問；靜態展示版固定回覆同一則範例。</div>
+      </div>
+    </div>
+    <div id="qa-window" class="chat-window"></div>
+    <div class="chat-input-row">
+      <textarea id="qa-input" rows="2" placeholder="例：咖啡因養髮液怎麼跟客人介紹？6號洗髮多少錢？"></textarea>
+      <button id="btn-qa-send" class="btn-primary">送出</button>
+    </div>
+  </main>
+
+  <!-- 隨機測驗 -->
+  <main id="screen-quiz" class="screen hidden">
+    <section class="card">
+      <h2>📝 隨機測驗</h2>
+      <div id="quiz-setup">
+        <p class="hint">選擇出題範圍後開始，一次一題，回答後立即評分講解。</p>
+        <label class="field-label">出題範圍</label>
+        <div id="quiz-module-list" class="mode-row"></div>
+        <div class="result-actions">
+          <button id="btn-quiz-start" class="btn-primary" disabled>開始測驗 →</button>
+          <button id="btn-quiz-bank" class="btn-outline">下載完整題庫（70 題 Word）</button>
+        </div>
+        <p class="hint" id="quiz-bank-hint">※ 靜態展示版不提供題庫下載，請使用完整版。</p>
+      </div>
+
+      <div id="quiz-play" class="hidden">
+        <div id="quiz-progress" class="quiz-progress"></div>
+        <div id="quiz-question" class="quiz-question"></div>
+        <textarea id="quiz-answer" rows="4" placeholder="輸入你的回答…"></textarea>
+        <div class="result-actions">
+          <button id="btn-quiz-submit" class="btn-primary">送出回答</button>
+          <button id="btn-quiz-next" class="btn-primary hidden">下一題 →</button>
+          <button id="btn-quiz-end" class="btn-outline">結束測驗</button>
+        </div>
+        <div id="quiz-feedback" class="hidden"></div>
+      </div>
+    </section>
+  </main>
+
+  <div id="loading" class="loading hidden"><div class="spinner"></div><span id="loading-text">思考中…</span></div>
+
+  <script src="demo-app.js"></script>
+</body>
+</html>
