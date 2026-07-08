@@ -29,44 +29,6 @@ const state = {
 const $ = (id) => document.getElementById(id);
 const esc = (s) => { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; };
 
-// 輕量 Markdown 轉 HTML：支援 ## 標題、**粗體**、*斜體*、- / 1. 清單、`code`、【標題】、段落與換行。
-// 先 escape 全部內容防 XSS，再做行內與區塊處理。
-function mdToHtml(src) {
-  const inline = (t) =>
-    esc(t)
-      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
-      .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, "$1<em>$2</em>")
-      .replace(/`([^`]+)`/g, "<code>$1</code>")
-      .replace(/【([^】]+)】/g, "<strong class=\"md-tag\">【$1】</strong>");
-
-  const lines = String(src).replace(/\r\n/g, "\n").split("\n");
-  let html = "";
-  let listType = null; // 'ul' | 'ol'
-  const closeList = () => { if (listType) { html += `</${listType}>`; listType = null; } };
-
-  for (let raw of lines) {
-    const line = raw.trimEnd();
-    let m;
-    if (!line.trim()) { closeList(); continue; }
-    if (/^(-{3,}|\*{3,}|_{3,})$/.test(line.trim())) { closeList(); html += '<hr class="md-hr">'; continue; }
-    if ((m = line.match(/^#{1,4}\s+(.*)$/))) {
-      closeList();
-      html += `<h4 class="md-h">${inline(m[1])}</h4>`;
-    } else if ((m = line.match(/^\s*[-•]\s+(.*)$/))) {
-      if (listType !== "ul") { closeList(); listType = "ul"; html += "<ul>"; }
-      html += `<li>${inline(m[1])}</li>`;
-    } else if ((m = line.match(/^\s*\d+[.)]\s+(.*)$/))) {
-      if (listType !== "ol") { closeList(); listType = "ol"; html += "<ol>"; }
-      html += `<li>${inline(m[1])}</li>`;
-    } else {
-      closeList();
-      html += `<p>${inline(line)}</p>`;
-    }
-  }
-  closeList();
-  return html;
-}
-
 // ───────────────── API（含靜態展示版轉接） ─────────────────
 async function api(path, body) {
   if (window.DEMO_DATA) return window.DEMO_DATA.handle(path, body);
@@ -207,13 +169,9 @@ function addBubble(role, text, win = "chat-window") {
     state.name || "你";
   const bubble = document.createElement("div");
   bubble.className = "bubble";
-  // 教育教練（知識問答）回覆用 Markdown 渲染；其餘（店長、業務發言）維持純文字
-  if (role === "assistant") {
-    bubble.classList.add("md-body");
-    bubble.innerHTML = mdToHtml(text);
-  } else {
-    bubble.textContent = text;
-  }
+  // 全部純文字呈現（AI 已被要求不產生 Markdown）；換行靠 CSS white-space: pre-wrap 保留
+  bubble.textContent = text;
+  if (role === "assistant") bubble.classList.add("qa-answer");
   inner.appendChild(speaker);
   inner.appendChild(bubble);
   row.appendChild(inner);

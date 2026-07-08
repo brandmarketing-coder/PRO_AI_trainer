@@ -216,10 +216,10 @@ input:focus, textarea:focus { outline: 2px solid var(--sage); border-color: tran
 .msg-row.sales { justify-content: flex-end; }
 .msg-row > div { max-width: 82%; min-width: 0; }
 .bubble {
-  padding: 11px 15px;
+  padding: 12px 16px;
   border-radius: 16px;
-  font-size: 15px;
-  line-height: 1.65;
+  font-size: 15.5px;
+  line-height: 1.8;
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -524,17 +524,8 @@ input:focus, textarea:focus { outline: 2px solid var(--sage); border-color: tran
 .qr-a { font-size: 13px; line-height: 1.6; color: var(--ink); margin-bottom: 4px; }
 .qr-c { font-size: 13px; line-height: 1.6; color: var(--stone); }
 
-/* ── Markdown 內容（知識問答回覆） ── */
-.md-body p { margin: 0 0 8px; }
-.md-body p:last-child { margin-bottom: 0; }
-.md-body .md-h { font-size: 15px; font-weight: 700; color: var(--forest); margin: 12px 0 6px; }
-.md-body .md-h:first-child { margin-top: 0; }
-.md-body .md-tag { color: var(--forest); }
-.md-body ul, .md-body ol { margin: 4px 0 10px; padding-left: 22px; }
-.md-body li { margin-bottom: 4px; line-height: 1.65; }
-.md-body strong { font-weight: 700; }
-.md-body code { background: var(--mist-soft); border-radius: 4px; padding: 1px 5px; font-size: 0.92em; }
-.md-body .md-hr { border: none; border-top: 1px solid var(--stone-line); margin: 12px 0; }
+/* ── 知識問答回覆（純文字、加大字級行距、段落間距，好讀優先） ── */
+.qa-answer { font-size: 15.5px; line-height: 1.9; letter-spacing: 0.2px; }
 
 /* ── Modal ── */
 .modal-backdrop {

@@ -5,7 +5,7 @@ const path = require("path");
 require("dotenv").config({ path: path.join(__dirname, ".env") });
 const express = require("express");
 const config = require("./config/trainer-config.json");
-const { loadKnowledge, searchKnowledge, KNOWLEDGE_DIR } = require("./knowledge");
+const { loadKnowledge, retrieve, KNOWLEDGE_DIR } = require("./knowledge");
 const prompts = require("./prompts");
 const { buildDocx, buildPdf, buildQuizBankDocx, buildQuizReportDocx } = require("./report");
 
@@ -24,83 +24,33 @@ const app = express();
 app.use(express.json({ limit: "10mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
-// 系統提示 = [角色核心＋知識庫目錄索引（快取區塊，所有功能共用）] + [功能專屬指令]
-// 注意：不把整包知識庫塞進 system prompt——713KB 原文換算超過 20 萬 token，
-// 會直接超過部分模型（如 Haiku）的上下文上限，且即使模型上下文夠大也是浪費成本。
-// 改成只放章節目錄，AI 需要具體事實時呼叫 search_knowledge 工具查詢。
-function systemBlocks(featureText) {
-  return [
-    {
-      type: "text",
-      text: prompts.ROLE_CORE + "\n\n" + KNOWLEDGE.indexText,
-      cache_control: { type: "ephemeral" }
-    },
-    { type: "text", text: featureText }
+// 「先檢索、再一次生成」的核心：
+// 由伺服器在本地用關鍵字檢索出相關知識庫片段（瞬間、不佔 API 時間），
+// 直接塞進 system prompt，讓模型「單次呼叫」就回答，不再多趟往返呼叫工具。
+// contextQuery 為空或查無相關資料時，不注入任何知識庫內容（例如純寒暄）。
+function systemBlocks(featureText, contextQuery, retrieveOpts = {}) {
+  const blocks = [
+    { type: "text", text: prompts.ROLE_CORE, cache_control: { type: "ephemeral" } }
   ];
+  let feature = featureText;
+  if (contextQuery) {
+    const ctx = retrieve(KNOWLEDGE.sections, contextQuery, retrieveOpts);
+    if (ctx) {
+      feature +=
+        "\n\n【本次知識庫參考資料（回答涉及產品事實時，一律以這裡為準；這裡沒有的就說「目前資料中沒有看到明確說明」，不要臆測）】\n" +
+        ctx;
+    }
+  }
+  blocks.push({ type: "text", text: feature });
+  return blocks;
 }
 
-const SEARCH_TOOL = {
-  name: "search_knowledge",
-  description:
-    "在 O'right｜PRO 業務教育知識庫中搜尋關鍵字，取得相關章節的實際內文（產品名稱、成分、規格、容量、價格、綠色關鍵、話術、FAQ、禁用詞等）。回答任何具體事實前必須先用這個工具確認，不能憑記憶回答或編造。通常查 1～2 次就該有足夠資訊，最多查 3 次。",
-  input_schema: {
-    type: "object",
-    properties: {
-      query: { type: "string", description: "要搜尋的關鍵字或問題，例如「咖啡因養髮液 容量 價格」" },
-      file: { type: "string", description: "可選。只在指定的知識檔案內搜尋，例如「10_PRO目錄.md」" }
-    },
-    required: ["query"],
-    additionalProperties: false
-  }
-};
-
-// 通用的「工具＋結構化輸出」對話迴圈：模型可先呼叫 search_knowledge 查資料，
-// 查夠了再依 schema 給出最終結構化答案（schema 為 null 時回傳純文字）。
-// 最後一輪強制拿掉工具，逼模型用目前查到的資料直接給答案，避免無止盡查詢後噴錯給使用者。
-// maxIterations 從 6 降到 4：一次 API 呼叫最多 3 次 search（第 4 次強制不給工具直接回答），
-// 大幅降低單次功能的 token 消耗，同時仍能應付大多數問題。
-async function callAgentic(featureText, initialMessages, schema, { maxTokens = 6000, maxIterations = 4 } = {}) {
-  const messages = [...initialMessages];
-  for (let i = 0; i < maxIterations; i++) {
-    const isLastChance = i === maxIterations - 1;
-    const response = await anthropic.messages.create({
-      model: MODEL,
-      max_tokens: maxTokens,
-      system: systemBlocks(featureText + (isLastChance ? "\n\n（已達查詢次數上限，請直接依目前已查到的資訊給出最終答案，查不到的部分請說明「目前資料中沒有看到明確說明」。）" : "")),
-      messages,
-      ...(isLastChance ? {} : { tools: [SEARCH_TOOL] }),
-      ...(schema ? { output_config: { format: { type: "json_schema", schema } } } : {})
-    });
-    if (response.stop_reason === "refusal") throw new Error("模型拒絕回應此內容");
-
-    if (response.stop_reason === "tool_use") {
-      messages.push({ role: "assistant", content: response.content });
-      const toolResults = response.content
-        .filter((b) => b.type === "tool_use")
-        .map((b) => ({
-          type: "tool_result",
-          tool_use_id: b.id,
-          content: searchKnowledge(KNOWLEDGE.sections, b.input.query, { file: b.input.file })
-        }));
-      messages.push({ role: "user", content: toolResults });
-      continue;
-    }
-
-    if (schema) {
-      const text = response.content.find((b) => b.type === "text");
-      return JSON.parse(text.text);
-    }
-    return response.content.filter((b) => b.type === "text").map((b) => b.text).join("\n");
-  }
-  throw new Error("查詢知識庫次數過多，請簡化問題後再試一次。");
-}
-
-// 不帶工具的單次呼叫：用於已備妥所有素材、不需查知識庫的快速任務（例如測驗批改）
-async function callDirect(featureText, messages, schema, maxTokens = 4000) {
+// 單次生成呼叫（無工具、無多趟往返）。schema 為 null 時回傳純文字。
+async function callGen(featureText, messages, schema, { maxTokens = 4000, contextQuery = null, retrieveOpts = {} } = {}) {
   const response = await anthropic.messages.create({
     model: MODEL,
     max_tokens: maxTokens,
-    system: systemBlocks(featureText),
+    system: systemBlocks(featureText, contextQuery, retrieveOpts),
     messages,
     ...(schema ? { output_config: { format: { type: "json_schema", schema } } } : {})
   });
@@ -110,6 +60,11 @@ async function callDirect(featureText, messages, schema, maxTokens = 4000) {
     return JSON.parse(text.text);
   }
   return response.content.filter((b) => b.type === "text").map((b) => b.text).join("\n");
+}
+
+// 從對話歷史取出業務講過的話（供檢索用；店長的話不列入檢索關鍵字）
+function salesQuery(history) {
+  return history.filter((m) => m.role === "sales").map((m) => m.text).join(" ").slice(-600);
 }
 
 function getTheme(id) {
@@ -401,10 +356,13 @@ app.post("/api/roleplay/turn", async (req, res) => {
       return res.json(isBad ? DEMO_TURN_CORRECTION : { ...DEMO_TURN, should_end: salesTurns >= 4 });
     }
 
-    const result = await callAgentic(
+    // 依業務最新一句檢索（若提到產品才會帶出參考資料，用於精準糾錯／示範）
+    const lastSales = history.filter((m) => m.role === "sales").pop();
+    const result = await callGen(
       prompts.buildRoleplayTurn(theme, difficulty),
       toApiMessages(history),
-      TURN_SCHEMA
+      TURN_SCHEMA,
+      { maxTokens: 2000, contextQuery: lastSales ? lastSales.text : null, retrieveOpts: { limit: 2, minScore: 3 } }
     );
     res.json(result);
   } catch (err) {
@@ -428,11 +386,11 @@ app.post("/api/roleplay/evaluate", async (req, res) => {
       role: "user",
       content: `（演練結束。以上共 ${roundCount} 輪（每輪＝業務一句＋店長一句），請依評分邏輯輸出完整評估。）`
     });
-    const result = await callAgentic(
+    const result = await callGen(
       prompts.buildEvaluate(theme, difficulty, roundCount),
       messages,
       EVAL_SCHEMA,
-      { maxTokens: 16000 }
+      { maxTokens: 8000, contextQuery: salesQuery(history), retrieveOpts: { limit: 2, minScore: 3 } }
     );
     res.json(result);
   } catch (err) {
@@ -446,7 +404,12 @@ app.post("/api/qa", async (req, res) => {
     const { history } = req.body; // [{role:'user'|'assistant', text}]
     if (!anthropic) return res.json({ answer: DEMO_QA });
     const messages = history.map((m) => ({ role: m.role, content: m.text }));
-    const answer = await callAgentic(prompts.QA_INSTRUCTIONS, messages, null);
+    const lastUser = [...history].reverse().find((m) => m.role === "user");
+    const answer = await callGen(prompts.QA_INSTRUCTIONS, messages, null, {
+      maxTokens: 2000,
+      contextQuery: lastUser ? lastUser.text : null,
+      retrieveOpts: { limit: 3, minScore: 2 }
+    });
     res.json({ answer });
   } catch (err) {
     console.error("qa error:", err);
@@ -458,10 +421,12 @@ app.post("/api/quiz/next", async (req, res) => {
   try {
     const { module, asked } = req.body;
     if (!anthropic) return res.json(DEMO_QUIZ_Q);
-    const result = await callAgentic(
+    const mod = config.quizModules.find((x) => x.id === module);
+    const result = await callGen(
       prompts.buildQuizNext(module, asked || []),
       [{ role: "user", content: "請出下一題。" }],
-      QUIZ_Q_SCHEMA
+      QUIZ_Q_SCHEMA,
+      { maxTokens: 2000, contextQuery: mod ? mod.scope : "品牌 產品 療程 話術", retrieveOpts: { limit: 3, minScore: 1 } }
     );
     res.json(result);
   } catch (err) {
@@ -475,7 +440,7 @@ app.post("/api/quiz/grade", async (req, res) => {
     const { question, answer } = req.body;
     if (!anthropic) return res.json(DEMO_QUIZ_GRADE);
     // 批改直接使用出題時查證好的參考答案，不再查知識庫（單次呼叫，速度快）
-    const result = await callDirect(
+    const result = await callGen(
       prompts.buildQuizGrade(),
       [
         {
@@ -487,7 +452,8 @@ app.post("/api/quiz/grade", async (req, res) => {
             `我的回答：${answer}`
         }
       ],
-      QUIZ_GRADE_SCHEMA
+      QUIZ_GRADE_SCHEMA,
+      { maxTokens: 1500 }
     );
     res.json(result);
   } catch (err) {
@@ -507,14 +473,14 @@ app.post("/api/quiz/bank", async (req, res) => {
         l1: "只講產品/知識本身", l2: "能連結需求", l3: "能連結價值與下一步"
       }));
     } else {
-      // 依模組逐一產生（每次 10 題），讓每次的知識庫搜尋範圍聚焦在單一模組
+      // 依模組逐一產生（每次 10 題），檢索該模組相關片段後單次生成
       items = [];
       for (const mod of config.quizModules) {
-        const result = await callAgentic(
+        const result = await callGen(
           prompts.buildQuizBankModule(mod),
           [{ role: "user", content: `請針對「${mod.name}」模組出 10 題。` }],
           QUIZ_BANK_MODULE_SCHEMA,
-          { maxTokens: 8000 }
+          { maxTokens: 8000, contextQuery: mod.scope, retrieveOpts: { limit: 4, minScore: 1 } }
         );
         result.items.forEach((it) => items.push({ ...it, no: items.length + 1, module: mod.name }));
       }

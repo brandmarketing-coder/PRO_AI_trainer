@@ -107,43 +107,52 @@ function loadKnowledge() {
     indexLines.push(`${priorityIdx + 1}. ${file}（約 ${fileSections.length} 個可搜尋段落）：${regionHeadings.join("、")}`);
   });
 
-  const indexText =
-    `以下是 O'right｜PRO 業務教育知識庫的檔案與章節目錄（依查找優先順序排列，前面優先；若不同檔案資訊衝突，以排序在前者為準）：\n\n` +
-    indexLines.join("\n") +
-    `\n\n你目前「只看得到上面的標題」，沒有看到內文。凡是要回答具體事實——產品名稱、成分、規格、容量、價格、綠色關鍵、香氛、上市年份、現行狀態、話術、禁用詞、FAQ 標準答案等——都必須先呼叫 search_knowledge 工具查詢內文，不能憑記憶回答或編造。查不到時，直接說「目前資料中沒有看到明確說明」。`;
-
   console.log(`[knowledge] 已載入 ${ordered.length} 個檔案、切成 ${sections.length} 個章節（${KNOWLEDGE_DIR}）`);
-  return { files: ordered, sections, indexText };
+  return { files: ordered, sections };
 }
 
-// 簡易關鍵字搜尋：依標題+內文的關鍵字命中數評分，優先序高的檔案同分時排前面
-// 為了控制 token 消耗，回傳限制在 3 段 × 800 字（原本 5 × 1800 字太多）
-function searchKnowledge(sections, query, { file, limit = 3 } = {}) {
-  if (!sections || !sections.length) return "知識庫尚未載入或找不到資料夾。";
+// 依查詢字串對章節評分（標題命中權重較高、完整片語命中加分，優先序高的檔案同分排前）
+function scoreSections(sections, query, file) {
   let candidates = sections;
-  if (file) {
-    candidates = candidates.filter((s) => s.file === file);
-    if (!candidates.length) return `找不到檔案「${file}」，請確認檔名是否正確。`;
-  }
-  const q = (query || "").trim();
-  const terms = q.toLowerCase().split(/[\s,，、。/／()（）]+/).filter(Boolean);
-  const scored = candidates
+  if (file) candidates = candidates.filter((s) => s.file === file);
+  const q = (query || "").trim().toLowerCase();
+  // 中文無空白斷詞，除了用分隔符切，也用 2-gram 補抓片語命中
+  const rough = q.split(/[\s,，、。/／()（）:：「」【】?？!！~～]+/).filter(Boolean);
+  const terms = new Set(rough);
+  rough.forEach((w) => {
+    for (let i = 0; i + 2 <= w.length; i++) terms.add(w.slice(i, i + 2));
+  });
+  return candidates
     .map((s) => {
       const hay = (s.heading + " " + s.text).toLowerCase();
       let score = 0;
-      if (q && hay.includes(q.toLowerCase())) score += 10;
-      terms.forEach((t) => { if (t && hay.includes(t)) score += 1; });
+      if (q && hay.includes(q)) score += 12;
+      terms.forEach((t) => { if (t.length >= 2 && hay.includes(t)) score += 1; });
+      // 標題命中額外加分
+      const head = s.heading.toLowerCase();
+      terms.forEach((t) => { if (t.length >= 2 && head.includes(t)) score += 1; });
       return { ...s, score };
     })
     .filter((s) => s.score > 0)
     .sort((a, b) => b.score - a.score || a.priority - b.priority);
+}
 
-  if (!scored.length) return `沒有找到符合「${q}」的內容。可能是拼寫不同或此知識庫沒有這項資料，請換個關鍵字再試一次，或直接回答「目前資料中沒有看到明確說明」。`;
-
+// 檢索並回傳可直接注入 prompt 的參考資料字串；查無足夠相關內容時回傳空字串（不注入雜訊）。
+// 這是「先檢索、再一次生成」架構的核心——取代原本讓模型多趟呼叫 search 工具的做法。
+function retrieve(sections, query, { file, limit = 3, minScore = 2, maxChars = 800 } = {}) {
+  if (!sections || !sections.length) return "";
+  const scored = scoreSections(sections, query, file);
+  if (!scored.length || scored[0].score < minScore) return "";
   return scored
     .slice(0, limit)
-    .map((s) => `【${s.file} - ${s.heading}】\n${s.text.slice(0, 800)}`)
+    .map((s) => `【${s.file}｜${s.heading}】\n${s.text.slice(0, maxChars)}`)
     .join("\n\n──────────\n\n");
 }
 
-module.exports = { loadKnowledge, searchKnowledge, KNOWLEDGE_DIR };
+// 保留 searchKnowledge 供舊呼叫相容（內部改用 scoreSections）
+function searchKnowledge(sections, query, { file, limit = 3 } = {}) {
+  const r = retrieve(sections, query, { file, limit, minScore: 1 });
+  return r || `沒有找到符合「${query}」的內容，請換個關鍵字或回答「目前資料中沒有看到明確說明」。`;
+}
+
+module.exports = { loadKnowledge, retrieve, searchKnowledge, KNOWLEDGE_DIR };
