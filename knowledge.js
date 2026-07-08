@@ -117,7 +117,8 @@ function loadKnowledge() {
 }
 
 // 簡易關鍵字搜尋：依標題+內文的關鍵字命中數評分，優先序高的檔案同分時排前面
-function searchKnowledge(sections, query, { file, limit = 5 } = {}) {
+// 為了控制 token 消耗，回傳限制在 3 段 × 800 字（原本 5 × 1800 字太多）
+function searchKnowledge(sections, query, { file, limit = 3 } = {}) {
   if (!sections || !sections.length) return "知識庫尚未載入或找不到資料夾。";
   let candidates = sections;
   if (file) {
@@ -141,7 +142,7 @@ function searchKnowledge(sections, query, { file, limit = 5 } = {}) {
 
   return scored
     .slice(0, limit)
-    .map((s) => `【${s.file} - ${s.heading}】\n${s.text.slice(0, 1800)}`)
+    .map((s) => `【${s.file} - ${s.heading}】\n${s.text.slice(0, 800)}`)
     .join("\n\n──────────\n\n");
 }
 

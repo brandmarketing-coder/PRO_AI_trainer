@@ -505,6 +505,37 @@ input:focus, textarea:focus { outline: 2px solid var(--sage); border-color: tran
 .qf-comment { font-size: 14px; line-height: 1.75; margin-bottom: 10px; }
 .qf-ref { font-size: 13px; line-height: 1.75; color: var(--stone); background: var(--mist-soft); border-radius: 8px; padding: 10px 12px; }
 
+/* 出題／批改進行中動畫 */
+.q-loading, .qf-grading { display: flex; align-items: center; gap: 8px; color: var(--stone); font-size: 14px; margin-bottom: 12px; }
+.dots { display: inline-flex; gap: 4px; }
+.dots span { width: 6px; height: 6px; border-radius: 50%; background: var(--sage); opacity: 0.4; animation: typing-dot 1.2s infinite; }
+.dots span:nth-child(2) { animation-delay: 0.15s; }
+.dots span:nth-child(3) { animation-delay: 0.3s; }
+
+/* ── 測驗成績頁 ── */
+.quiz-score-ring { margin-top: 14px; }
+.qr-bar { height: 10px; background: var(--stone-line); border-radius: 5px; overflow: hidden; }
+.qr-bar-fill { height: 100%; background: var(--sage); border-radius: 5px; transition: width 0.6s ease; }
+.qr-item { border-top: 1px solid var(--stone-line); padding: 14px 0; }
+.qr-item:first-child { border-top: none; padding-top: 0; }
+.qr-item-head { font-weight: 700; font-size: 14px; margin-bottom: 6px; }
+.qr-tag { font-size: 11px; font-weight: 700; color: var(--sage-dark); background: var(--mist); border-radius: 10px; padding: 1px 8px; }
+.qr-q { font-size: 14px; line-height: 1.6; margin-bottom: 6px; }
+.qr-a { font-size: 13px; line-height: 1.6; color: var(--ink); margin-bottom: 4px; }
+.qr-c { font-size: 13px; line-height: 1.6; color: var(--stone); }
+
+/* ── Markdown 內容（知識問答回覆） ── */
+.md-body p { margin: 0 0 8px; }
+.md-body p:last-child { margin-bottom: 0; }
+.md-body .md-h { font-size: 15px; font-weight: 700; color: var(--forest); margin: 12px 0 6px; }
+.md-body .md-h:first-child { margin-top: 0; }
+.md-body .md-tag { color: var(--forest); }
+.md-body ul, .md-body ol { margin: 4px 0 10px; padding-left: 22px; }
+.md-body li { margin-bottom: 4px; line-height: 1.65; }
+.md-body strong { font-weight: 700; }
+.md-body code { background: var(--mist-soft); border-radius: 4px; padding: 1px 5px; font-size: 0.92em; }
+.md-body .md-hr { border: none; border-top: 1px solid var(--stone-line); margin: 12px 0; }
+
 /* ── Modal ── */
 .modal-backdrop {
   position: fixed; inset: 0;

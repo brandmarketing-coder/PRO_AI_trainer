@@ -15,17 +15,57 @@ const state = {
   qaHistory: [],  // [{role:'user'|'assistant', text}]
   // 測驗
   quizModule: null,
+  quizModuleLabel: "",
   quizQuestion: null,
   quizAsked: [],
   quizCount: 0,
   quizCorrect: 0,
   quizPrefetch: null,
+  quizItems: [],   // 逐題作答歷史（供產出測驗報告）
   // 全域
   busy: false
 };
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) => { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; };
+
+// 輕量 Markdown 轉 HTML：支援 ## 標題、**粗體**、*斜體*、- / 1. 清單、`code`、【標題】、段落與換行。
+// 先 escape 全部內容防 XSS，再做行內與區塊處理。
+function mdToHtml(src) {
+  const inline = (t) =>
+    esc(t)
+      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+      .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, "$1<em>$2</em>")
+      .replace(/`([^`]+)`/g, "<code>$1</code>")
+      .replace(/【([^】]+)】/g, "<strong class=\"md-tag\">【$1】</strong>");
+
+  const lines = String(src).replace(/\r\n/g, "\n").split("\n");
+  let html = "";
+  let listType = null; // 'ul' | 'ol'
+  const closeList = () => { if (listType) { html += `</${listType}>`; listType = null; } };
+
+  for (let raw of lines) {
+    const line = raw.trimEnd();
+    let m;
+    if (!line.trim()) { closeList(); continue; }
+    if (/^(-{3,}|\*{3,}|_{3,})$/.test(line.trim())) { closeList(); html += '<hr class="md-hr">'; continue; }
+    if ((m = line.match(/^#{1,4}\s+(.*)$/))) {
+      closeList();
+      html += `<h4 class="md-h">${inline(m[1])}</h4>`;
+    } else if ((m = line.match(/^\s*[-•]\s+(.*)$/))) {
+      if (listType !== "ul") { closeList(); listType = "ul"; html += "<ul>"; }
+      html += `<li>${inline(m[1])}</li>`;
+    } else if ((m = line.match(/^\s*\d+[.)]\s+(.*)$/))) {
+      if (listType !== "ol") { closeList(); listType = "ol"; html += "<ol>"; }
+      html += `<li>${inline(m[1])}</li>`;
+    } else {
+      closeList();
+      html += `<p>${inline(line)}</p>`;
+    }
+  }
+  closeList();
+  return html;
+}
 
 // ───────────────── API（含靜態展示版轉接） ─────────────────
 async function api(path, body) {
@@ -84,8 +124,9 @@ const SCREEN_META = {
   "progress":   { title: "產出報告" },
   "result":     { title: "訓練評估報告", back: "home" },
   "qa":         { title: "知識問答", back: "home" },
-  "quiz-setup": { title: "隨機測驗", back: "home" },
-  "quiz-play":  { title: "隨機測驗", back: "quiz-setup" }
+  "quiz-setup":  { title: "隨機測驗", back: "home" },
+  "quiz-play":   { title: "隨機測驗", back: "quiz-setup" },
+  "quiz-result": { title: "測驗成績", back: "home" }
 };
 const SCREEN_IDS = Object.keys(SCREEN_META);
 let currentScreen = "home";
@@ -123,8 +164,24 @@ $("nav-back").onclick = () => {
 };
 
 document.querySelectorAll(".feature-card").forEach((btn) => {
-  btn.onclick = () => go(btn.dataset.goto);
+  btn.onclick = () => {
+    if (btn.dataset.goto === "qa") resetQa();
+    go(btn.dataset.goto);
+  };
 });
+
+// 進入知識問答前清空上一次的對話與快速提問，回到起始建議畫面
+function resetQa() {
+  state.qaHistory = [];
+  const win = $("qa-window");
+  win.innerHTML =
+    '<div id="qa-starter" class="qa-starter">' +
+    '<p class="qa-starter-title">想問什麼？先從這些方向開始：</p>' +
+    '<div id="qa-categories"></div></div>';
+  $("qa-chips").classList.add("hidden");
+  $("qa-chips").innerHTML = "";
+  renderQaStarter();
+}
 
 // ───────────────── 通用 UI 元件 ─────────────────
 function autosize(ta) {
@@ -150,7 +207,13 @@ function addBubble(role, text, win = "chat-window") {
     state.name || "你";
   const bubble = document.createElement("div");
   bubble.className = "bubble";
-  bubble.textContent = text;
+  // 教育教練（知識問答）回覆用 Markdown 渲染；其餘（店長、業務發言）維持純文字
+  if (role === "assistant") {
+    bubble.classList.add("md-body");
+    bubble.innerHTML = mdToHtml(text);
+  } else {
+    bubble.textContent = text;
+  }
   inner.appendChild(speaker);
   inner.appendChild(bubble);
   row.appendChild(inner);
@@ -371,18 +434,23 @@ async function runEvaluation() {
   const items = [...list.children];
   const fill = $("progress-fill");
   let step = 0;
+  let pct = 10;
   items[0].classList.add("active");
-  fill.style.width = "12%";
+  fill.style.width = pct + "%";
   clearInterval(progressTimer);
+  // 步驟依序點亮到倒數第二步；同時進度條「持續」緩慢爬升（漸近逼近 95%），
+  // 即使 API 還沒回來也不會看起來卡住不動。
   progressTimer = setInterval(() => {
-    if (step < PROGRESS_STEPS.length - 2) {
+    if (step < PROGRESS_STEPS.length - 2 && pct > 20 + step * 18) {
       items[step].classList.remove("active");
       items[step].classList.add("done");
       step++;
       items[step].classList.add("active");
-      fill.style.width = `${Math.min(88, 12 + step * 22)}%`;
     }
-  }, 1800);
+    // 每次往「剩餘距離」推進一小段，越接近 95% 走得越慢
+    pct = Math.min(95, pct + Math.max(0.4, (95 - pct) * 0.06));
+    fill.style.width = pct.toFixed(1) + "%";
+  }, 400);
 
   const minDisplay = new Promise((r) => setTimeout(r, 3200));
   try {
@@ -624,17 +692,19 @@ function renderQuizModules() {
       `<span class="o-icon">${m.icon}</span>` +
       `<span class="o-body"><span class="o-name">${esc(m.name)}</span>` +
       `<span class="o-desc">${esc(m.scope)}</span></span>`;
-    btn.onclick = () => startQuiz(m.id);
+    btn.onclick = () => startQuiz(m.id, m.name);
     wrap.appendChild(btn);
   });
 }
 
-function startQuiz(moduleId) {
+function startQuiz(moduleId, moduleLabel) {
   state.quizModule = moduleId;
+  state.quizModuleLabel = moduleLabel;
   state.quizAsked = [];
   state.quizCount = 0;
   state.quizCorrect = 0;
   state.quizPrefetch = null;
+  state.quizItems = [];
   go("quiz-play");
   loadQuestion();
 }
@@ -646,11 +716,15 @@ function fetchQuestion() {
 async function loadQuestion() {
   $("quiz-feedback").classList.add("hidden");
   $("btn-quiz-next").classList.add("hidden");
+  $("quiz-answer-block").classList.remove("hidden");
   $("btn-quiz-submit").classList.remove("hidden");
   $("btn-quiz-submit").disabled = true;
   $("quiz-answer").value = "";
   $("quiz-answer").disabled = false;
+  autosize($("quiz-answer"));
+  // 出題時的骨架動畫
   $("quiz-question").innerHTML =
+    `<div class="q-loading"><span class="dots"><span></span><span></span><span></span></span> 出題中…</div>` +
     `<div class="skeleton w60"></div><div class="skeleton"></div><div class="skeleton"></div>`;
   $("quiz-progress").textContent = state.quizCount > 0
     ? `第 ${state.quizCount + 1} 題｜前 ${state.quizCount} 題答對 ${state.quizCorrect} 題`
@@ -680,34 +754,100 @@ $("btn-quiz-submit").onclick = async () => {
   if (!answer) { toast("請先輸入回答"); return; }
   if (state.busy) return;
   state.busy = true;
-  const btn = $("btn-quiz-submit");
-  btn.disabled = true;
-  btn.textContent = "批改中…";
   $("quiz-answer").disabled = true;
+  // 批改中動畫（取代靜態的按鈕文字）
+  $("btn-quiz-submit").classList.add("hidden");
+  $("quiz-feedback").classList.remove("hidden");
+  $("quiz-feedback").innerHTML =
+    `<div class="qf-grading"><span class="dots"><span></span><span></span><span></span></span> 教練批改中…</div>`;
 
   try {
     const data = await api("/api/quiz/grade", { question: state.quizQuestion, answer });
     if (data.correct) state.quizCorrect++;
+    // 記錄作答歷史（供產出測驗報告）
+    state.quizItems.push({
+      no: state.quizCount,
+      module: state.quizQuestion.module,
+      type: state.quizQuestion.type,
+      question: state.quizQuestion.question,
+      my_answer: answer,
+      comment: data.comment,
+      level: data.level,
+      reference_answer: data.reference_answer,
+      correct: data.correct
+    });
     $("quiz-progress").textContent = `第 ${state.quizCount} 題｜答對 ${state.quizCorrect} 題`;
-    $("quiz-feedback").classList.remove("hidden");
     $("quiz-feedback").innerHTML =
       `<div class="qf-head ${data.correct ? "qf-ok" : "qf-no"}">${data.correct ? "✓ 掌握不錯" : "△ 還要加強"}<span class="level-badge">${esc(data.level)}</span></div>` +
       `<div class="qf-comment">${esc(data.comment)}</div>` +
       `<div class="qf-ref"><b>參考回答方向：</b>${esc(data.reference_answer)}</div>`;
-    btn.classList.add("hidden");
     $("btn-quiz-next").classList.remove("hidden");
     $("quiz-feedback").scrollIntoView({ behavior: "smooth", block: "nearest" });
   } catch (err) {
     toast("批改失敗：" + err.message);
     $("quiz-answer").disabled = false;
+    $("btn-quiz-submit").classList.remove("hidden");
+    $("quiz-feedback").classList.add("hidden");
   } finally {
     state.busy = false;
-    btn.disabled = false;
-    btn.textContent = "送出回答";
   }
 };
 
 $("btn-quiz-next").onclick = loadQuestion;
+
+$("btn-quiz-finish").onclick = () => {
+  if (state.quizItems.length === 0) {
+    confirmModal(
+      { title: "還沒有作答紀錄", body: "尚未完成任何一題，確定要離開測驗嗎？", okText: "離開", cancelText: "繼續作答" },
+      () => go("quiz-setup")
+    );
+    return;
+  }
+  renderQuizResult();
+  go("quiz-result");
+};
+
+function renderQuizResult() {
+  const total = state.quizItems.length;
+  const correct = state.quizItems.filter((it) => it.correct).length;
+  const pct = total > 0 ? Math.round((correct / total) * 100) : 0;
+  $("quiz-result-meta").textContent = `${state.name || "業務夥伴"}｜${todayStr()}｜${state.quizModuleLabel}`;
+  $("quiz-result-score").innerHTML = `答對 ${correct} / ${total} 題<span class="level-badge">${pct}%</span>`;
+  $("quiz-result-bar").innerHTML = `<div class="qr-bar"><div class="qr-bar-fill" style="width:${pct}%"></div></div>`;
+  $("quiz-result-items").innerHTML = state.quizItems.map((it) =>
+    `<div class="qr-item">` +
+    `<div class="qr-item-head ${it.correct ? "qf-ok" : "qf-no"}">${it.correct ? "✓" : "△"} 第 ${it.no} 題　<span class="qr-tag">${esc(it.module)}</span></div>` +
+    `<div class="qr-q">${esc(it.question)}</div>` +
+    `<div class="qr-a"><b>你的回答：</b>${esc(it.my_answer)}</div>` +
+    `<div class="qr-c">${esc(it.comment)}</div>` +
+    `</div>`
+  ).join("");
+}
+
+$("btn-quiz-again").onclick = () => go("quiz-setup");
+
+$("btn-quiz-report").onclick = async (e) => {
+  const btn = e.currentTarget;
+  btn.disabled = true;
+  btn.textContent = "產生中…";
+  try {
+    const total = state.quizItems.length;
+    const correct = state.quizItems.filter((it) => it.correct).length;
+    const blob = await apiBlob("/api/quiz/report", {
+      name: state.name,
+      date: todayStr(),
+      moduleLabel: state.quizModuleLabel,
+      total, correct,
+      items: state.quizItems
+    });
+    triggerDownload(blob, `OrightPRO測驗報告_${state.name || "業務夥伴"}_${todayStr().replaceAll("/", "")}.docx`);
+  } catch (err) {
+    toast(err.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "下載測驗報告";
+  }
+};
 
 $("btn-quiz-bank").onclick = (e) => {
   const btn = e.currentTarget;

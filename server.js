@@ -7,7 +7,7 @@ const express = require("express");
 const config = require("./config/trainer-config.json");
 const { loadKnowledge, searchKnowledge, KNOWLEDGE_DIR } = require("./knowledge");
 const prompts = require("./prompts");
-const { buildDocx, buildPdf, buildQuizBankDocx } = require("./report");
+const { buildDocx, buildPdf, buildQuizBankDocx, buildQuizReportDocx } = require("./report");
 
 const MODEL = process.env.MODEL || "claude-opus-4-8";
 const PORT = process.env.PORT || 3000;
@@ -57,7 +57,9 @@ const SEARCH_TOOL = {
 // 通用的「工具＋結構化輸出」對話迴圈：模型可先呼叫 search_knowledge 查資料，
 // 查夠了再依 schema 給出最終結構化答案（schema 為 null 時回傳純文字）。
 // 最後一輪強制拿掉工具，逼模型用目前查到的資料直接給答案，避免無止盡查詢後噴錯給使用者。
-async function callAgentic(featureText, initialMessages, schema, { maxTokens = 8000, maxIterations = 6 } = {}) {
+// maxIterations 從 6 降到 4：一次 API 呼叫最多 3 次 search（第 4 次強制不給工具直接回答），
+// 大幅降低單次功能的 token 消耗，同時仍能應付大多數問題。
+async function callAgentic(featureText, initialMessages, schema, { maxTokens = 6000, maxIterations = 4 } = {}) {
   const messages = [...initialMessages];
   for (let i = 0; i < maxIterations; i++) {
     const isLastChance = i === maxIterations - 1;
@@ -547,6 +549,19 @@ app.post("/api/report/pdf", async (req, res) => {
     res.send(buffer);
   } catch (err) {
     console.error("pdf error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 測驗報告 Word：把作答歷史打包成 Word 檔（無需 AI 呼叫，全部由後端組表）
+app.post("/api/quiz/report", async (req, res) => {
+  try {
+    const buffer = await buildQuizReportDocx(req.body);
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+    res.setHeader("Content-Disposition", "attachment; filename=quiz-report.docx");
+    res.send(buffer);
+  } catch (err) {
+    console.error("quiz/report error:", err);
     res.status(500).json({ error: err.message });
   }
 });

@@ -56,11 +56,17 @@ async function buildDocx(data) {
       children: [new Paragraph({ children: [run(text, { bold, ...(color ? { color } : {}) })] })]
     });
 
+  // 表格列避免被分頁切開（就是圖 2 表頭跑到上一頁、內容留在下一頁的問題根源）
+  const row = (children, opts = {}) =>
+    new TableRow({ children, cantSplit: true, ...(opts.header ? { tableHeader: true } : {}) });
+
   const headerRow = (labels, widths) =>
     new TableRow({
       children: labels.map((t, i) =>
         cell(t, { bold: true, fill: GREEN, color: "FFFFFF", width: widths ? widths[i] : undefined })
-      )
+      ),
+      tableHeader: true,   // 換頁時自動重複表頭
+      cantSplit: true
     });
 
   const table = (rows) => new Table({ width: { size: 100, type: WidthType.PERCENTAGE }, rows });
@@ -88,7 +94,7 @@ async function buildDocx(data) {
   children.push(
     table([
       headerRow(["評分項目", "固定說明"], [20, 80]),
-      ...FIXED_S1.map(([k, v]) => new TableRow({ children: [cell(k, { bold: true, fill: "EAF5EE", width: 20 }), cell(v)] }))
+      ...FIXED_S1.map(([k, v]) => new TableRow({ cantSplit: true, children: [cell(k, { bold: true, fill: "EAF5EE", width: 20 }), cell(v)] }))
     ])
   );
 
@@ -98,7 +104,7 @@ async function buildDocx(data) {
     table([
       headerRow(["層級", "判定標準", "常見表現", "分數參考區間"], [16, 34, 34, 16]),
       ...FIXED_S2.map(
-        (r) => new TableRow({ children: r.map((t, i) => cell(t, i === 0 ? { bold: true, fill: "EAF5EE" } : {})) })
+        (r) => new TableRow({ cantSplit: true, children: r.map((t, i) => cell(t, i === 0 ? { bold: true, fill: "EAF5EE" } : {})) })
       )
     ])
   );
@@ -110,7 +116,7 @@ async function buildDocx(data) {
     table([
       headerRow(["構面", "滿分", "高分標準", "低分常見狀況"], [14, 10, 38, 38]),
       ...FIXED_S3.map(
-        (r) => new TableRow({ children: r.map((t, i) => cell(t, i === 0 ? { bold: true, fill: "EAF5EE" } : {})) })
+        (r) => new TableRow({ cantSplit: true, children: r.map((t, i) => cell(t, i === 0 ? { bold: true, fill: "EAF5EE" } : {})) })
       )
     ])
   );
@@ -128,7 +134,7 @@ async function buildDocx(data) {
   children.push(
     table([
       headerRow(["欄位", "內容"], [20, 80]),
-      ...info.map(([k, v]) => new TableRow({ children: [cell(k, { bold: true, fill: "EAF5EE", width: 20 }), cell(v)] }))
+      ...info.map(([k, v]) => new TableRow({ cantSplit: true, children: [cell(k, { bold: true, fill: "EAF5EE", width: 20 }), cell(v)] }))
     ])
   );
 
@@ -141,6 +147,7 @@ async function buildDocx(data) {
       ...ev.constructs.map(
         (c) =>
           new TableRow({
+            cantSplit: true,
             children: [
               cell(c.name, { bold: true }),
               cell(markLabel(c.mark)),
@@ -150,6 +157,7 @@ async function buildDocx(data) {
           })
       ),
       new TableRow({
+        cantSplit: true,
         children: [
           cell("總分", { bold: true, fill: "EAF5EE" }),
           cell(ev.level_note, { fill: "EAF5EE" }),
@@ -165,12 +173,17 @@ async function buildDocx(data) {
   children.push(p("重要規則：此區必須逐輪保留業務夥伴與店長完整原文，不可改寫成摘要。", { bold: true }));
   data.rounds.forEach((r, i) => {
     const score = ev.rounds[i];
-    children.push(p(`第 ${r.no} 輪`, { bold: true, size: 23 }));
+    // keepNext：讓「第 X 輪」標題跟後面的表格保持在同一頁，避免標題落在頁尾、表格跑到下一頁
+    children.push(new Paragraph({
+      keepNext: true,
+      children: [run(`第 ${r.no} 輪`, { bold: true, size: 23 })],
+      spacing: { before: 200, after: 100 }
+    }));
     children.push(
       table([
         headerRow(["角色", "完整原文對話"], [16, 84]),
-        new TableRow({ children: [cell("業務夥伴", { bold: true, fill: "EAF5EE", width: 16 }), cell(r.sales)] }),
-        new TableRow({ children: [cell("店長", { bold: true, fill: "EAF5EE", width: 16 }), cell(r.manager || "（本輪店長未回覆）")] })
+        new TableRow({ cantSplit: true, children: [cell("業務夥伴", { bold: true, fill: "EAF5EE", width: 16 }), cell(r.sales)] }),
+        new TableRow({ cantSplit: true, children: [cell("店長", { bold: true, fill: "EAF5EE", width: 16 }), cell(r.manager || "（本輪店長未回覆）")] })
       ])
     );
     if (score) {
@@ -178,6 +191,7 @@ async function buildDocx(data) {
         table([
           headerRow(ROUND_SCORE_HEADERS, [9, 9, 9, 9, 9, 9, 10, 36]),
           new TableRow({
+            cantSplit: true,
             children: [
               ...MARK_KEYS.map((k) => cell(score.marks[k])),
               cell(score.level),
@@ -213,9 +227,9 @@ async function buildDocx(data) {
   children.push(
     table([
       headerRow(["項目", "評估內容"], [20, 80]),
-      new TableRow({ children: [cell("整體層級", { bold: true, fill: "EAF5EE", width: 20 }), cell(ev.level_note)] }),
-      new TableRow({ children: [cell("總分", { bold: true, fill: "EAF5EE", width: 20 }), cell(`${ev.total_score}／100`)] }),
-      new TableRow({ children: [cell("整體判斷", { bold: true, fill: "EAF5EE", width: 20 }), cell(ev.overall_judgment)] })
+      new TableRow({ cantSplit: true, children: [cell("整體層級", { bold: true, fill: "EAF5EE", width: 20 }), cell(ev.level_note)] }),
+      new TableRow({ cantSplit: true, children: [cell("總分", { bold: true, fill: "EAF5EE", width: 20 }), cell(`${ev.total_score}／100`)] }),
+      new TableRow({ cantSplit: true, children: [cell("整體判斷", { bold: true, fill: "EAF5EE", width: 20 }), cell(ev.overall_judgment)] })
     ])
   );
 
@@ -225,7 +239,7 @@ async function buildDocx(data) {
     table([
       headerRow(["訓練方向", "建議做法"], [24, 76]),
       ...ev.next_steps.map(
-        (s) => new TableRow({ children: [cell(s.direction, { bold: true, width: 24 }), cell(s.method)] })
+        (s) => new TableRow({ cantSplit: true, children: [cell(s.direction, { bold: true, width: 24 }), cell(s.method)] })
       )
     ])
   );
@@ -283,10 +297,98 @@ async function buildQuizBankDocx(items) {
         width: { size: 100, type: WidthType.PERCENTAGE },
         rows: rows.map(
           ([k, v]) =>
-            new TableRow({ children: [cellOf(k, { bold: true, fill: "EAF5EE", width: 20 }), cellOf(v)] })
+            new TableRow({ cantSplit: true, children: [cellOf(k, { bold: true, fill: "EAF5EE", width: 20 }), cellOf(v)] })
         )
       })
     );
+  });
+
+  const doc = new Document({ creator: "O'right｜PRO 業務教育教練", sections: [{ children }] });
+  return Packer.toBuffer(doc);
+}
+
+// ══════════════════════════ 測驗報告 Word ══════════════════════════
+// data = { name, date, moduleLabel, total, correct, items: [{no, question, my_answer, comment, level, reference_answer, correct}] }
+async function buildQuizReportDocx(data) {
+  const {
+    Document, Packer, Paragraph, TextRun, Table, TableRow, TableCell, WidthType, AlignmentType
+  } = require("docx");
+  const font = "Microsoft JhengHei";
+  const run = (text, opts = {}) => new TextRun({ text: String(text), font, size: 21, ...opts });
+  const p = (text, opts = {}) => new Paragraph({ children: [run(text, opts)], spacing: { after: 100 } });
+  const heading = (text) => new Paragraph({
+    children: [run(text, { bold: true, size: 26, color: GREEN })],
+    spacing: { before: 260, after: 140 }
+  });
+  const cellOf = (text, opts = {}) =>
+    new TableCell({
+      ...(opts.width ? { width: { size: opts.width, type: WidthType.PERCENTAGE } } : {}),
+      ...(opts.fill ? { shading: { fill: opts.fill } } : {}),
+      children: [new Paragraph({ children: [run(text, { bold: !!opts.bold, ...(opts.color ? { color: opts.color } : {}) })] })]
+    });
+
+  const children = [
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      children: [run("O'right｜PRO 業務訓練測驗報告", { bold: true, size: 36, color: GREEN })],
+      spacing: { after: 80 }
+    }),
+    new Paragraph({
+      alignment: AlignmentType.CENTER,
+      children: [run(`${data.moduleLabel}｜${data.correct} / ${data.total} 題答對`, { size: 22, color: "666666" })],
+      spacing: { after: 240 }
+    })
+  ];
+
+  // 基本資料
+  children.push(heading("測驗資訊"));
+  const info = [
+    ["業務夥伴", data.name || "未填寫"],
+    ["測驗日期", data.date],
+    ["出題範圍", data.moduleLabel],
+    ["答題總數", `${data.total} 題`],
+    ["答對題數", `${data.correct} 題`],
+    ["正確率", data.total > 0 ? `${Math.round((data.correct / data.total) * 100)}%` : "—"]
+  ];
+  children.push(
+    new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      rows: [
+        new TableRow({ cantSplit: true, tableHeader: true, children: [
+          cellOf("欄位", { bold: true, fill: GREEN, color: "FFFFFF", width: 20 }),
+          cellOf("內容", { bold: true, fill: GREEN, color: "FFFFFF", width: 80 })
+        ]}),
+        ...info.map(([k, v]) => new TableRow({ cantSplit: true, children: [
+          cellOf(k, { bold: true, fill: "EAF5EE", width: 20 }),
+          cellOf(v)
+        ]}))
+      ]
+    })
+  );
+
+  // 逐題明細
+  children.push(heading("逐題作答明細"));
+  data.items.forEach((it) => {
+    children.push(new Paragraph({
+      keepNext: true,
+      children: [run(`第 ${it.no} 題｜${it.module}｜${it.type}　`, { bold: true, size: 23 }),
+                 run(it.correct ? "✓ 掌握不錯" : "△ 還要加強", { bold: true, size: 22, color: it.correct ? "1B7A43" : "AA3333" })],
+      spacing: { before: 200, after: 100 }
+    }));
+    const rows = [
+      ["題目", it.question],
+      ["我的回答", it.my_answer || "（未作答）"],
+      ["層級", it.level || "—"],
+      ["評語", it.comment || "—"],
+      ["參考回答", it.reference_answer || "—"]
+    ];
+    children.push(new Table({
+      width: { size: 100, type: WidthType.PERCENTAGE },
+      rows: rows.map(([k, v]) => new TableRow({ cantSplit: true, children: [
+        cellOf(k, { bold: true, fill: "EAF5EE", width: 20 }),
+        cellOf(v)
+      ]}))
+    }));
   });
 
   const doc = new Document({ creator: "O'right｜PRO 業務教育教練", sections: [{ children }] });
@@ -458,4 +560,4 @@ async function buildPdf(data) {
   return done;
 }
 
-module.exports = { buildDocx, buildPdf, buildQuizBankDocx };
+module.exports = { buildDocx, buildPdf, buildQuizBankDocx, buildQuizReportDocx };

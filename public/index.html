@@ -211,15 +211,37 @@
       <div class="container">
         <div id="quiz-progress" class="quiz-progress"></div>
         <div id="quiz-question" class="section-card quiz-question"></div>
-        <div class="quiz-answer-wrap">
-          <textarea id="quiz-answer" rows="4" placeholder="輸入你的回答…"></textarea>
-          <button id="mic-quiz" class="mic-btn mic-inline" aria-label="語音輸入">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><rect x="9" y="3" width="6" height="11" rx="3" stroke="currentColor" stroke-width="1.8"/><path d="M5 11a7 7 0 0014 0M12 18v3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
-          </button>
+        <div id="quiz-answer-block">
+          <div class="quiz-answer-wrap">
+            <textarea id="quiz-answer" rows="4" placeholder="輸入你的回答…"></textarea>
+            <button id="mic-quiz" class="mic-btn mic-inline" aria-label="語音輸入">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><rect x="9" y="3" width="6" height="11" rx="3" stroke="currentColor" stroke-width="1.8"/><path d="M5 11a7 7 0 0014 0M12 18v3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+            </button>
+          </div>
+          <button id="btn-quiz-submit" class="btn-primary btn-block">送出回答</button>
         </div>
-        <button id="btn-quiz-submit" class="btn-primary btn-block">送出回答</button>
         <div id="quiz-feedback" class="section-card hidden"></div>
         <button id="btn-quiz-next" class="btn-primary btn-block hidden">下一題</button>
+        <button id="btn-quiz-finish" class="link-btn">結束測驗並看成績</button>
+      </div>
+    </main>
+
+    <!-- 測驗：成績 -->
+    <main id="screen-quiz-result" class="screen scroll hidden">
+      <div class="container">
+        <div class="section-card result-head">
+          <div id="quiz-result-meta" class="result-meta"></div>
+          <div id="quiz-result-score" class="result-total"></div>
+          <div id="quiz-result-bar" class="quiz-score-ring"></div>
+        </div>
+        <div class="section-card">
+          <h3>逐題回顧</h3>
+          <div id="quiz-result-items"></div>
+        </div>
+        <div class="result-actions">
+          <button id="btn-quiz-report" class="btn-primary">下載測驗報告</button>
+          <button id="btn-quiz-again" class="btn-outline">再測一次</button>
+        </div>
       </div>
     </main>
 
