@@ -133,7 +133,14 @@ function stripMarkdown(text) {
 
 const app = express();
 app.use(express.json({ limit: "10mb" }));
-app.use(express.static(path.join(__dirname, "public")));
+// no-cache：讓瀏覽器每次都向伺服器驗證 html/js/css 是否有更新（未變回 304、變了拿新版），
+// 避免部署新版後使用者仍看到瀏覽器快取的舊畫面。
+app.use(express.static(path.join(__dirname, "public"), {
+  etag: true,
+  setHeaders: (res, filePath) => {
+    if (/\.(html|js|css)$/.test(filePath)) res.setHeader("Cache-Control", "no-cache");
+  }
+}));
 
 // 組出「本次動態 system 內容」＝功能指令 + （本地檢索到的知識庫參考資料）。
 // contextQuery 為空或查無相關資料時，不注入知識庫內容（例如純寒暄），prompt 更小更快。
