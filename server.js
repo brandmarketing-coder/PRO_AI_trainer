@@ -9,13 +9,72 @@ const { loadKnowledge, retrieve, KNOWLEDGE_DIR } = require("./knowledge");
 const prompts = require("./prompts");
 const { buildDocx, buildPdf, buildQuizBankDocx, buildQuizReportDocx } = require("./report");
 
-const MODEL = process.env.MODEL || "claude-opus-4-8";
-const PORT = process.env.PORT || 3000;
+// ────────────────────────── LLM Provider（可切換 OpenAI / Anthropic） ──────────────────────────
+// 用 PROVIDER 環境變數選擇；未指定時依現有金鑰自動判斷（OpenAI 優先）。
+// 兩家的訊息格式、結構化輸出、回應解析都不同，這裡抽象成同一個 llm.generate() 介面。
+let PROVIDER = (process.env.PROVIDER || "").toLowerCase();
+if (!PROVIDER) {
+  if (process.env.OPENAI_API_KEY) PROVIDER = "openai";
+  else if (process.env.ANTHROPIC_API_KEY) PROVIDER = "anthropic";
+}
 
-let anthropic = null;
-if (process.env.ANTHROPIC_API_KEY) {
+let llm = null;      // { generate({systemStable, systemDynamic, messages, schema, schemaName, maxTokens}) }
+let MODEL = "";      // 目前使用的模型 ID（顯示用）
+
+if (PROVIDER === "openai" && process.env.OPENAI_API_KEY) {
+  const OpenAI = require("openai");
+  const client = new OpenAI();
+  MODEL = process.env.OPENAI_MODEL || "gpt-4o";
+  llm = {
+    provider: "openai",
+    model: MODEL,
+    async generate({ systemStable, systemDynamic, messages, schema, schemaName, maxTokens }) {
+      // OpenAI：system 併進 messages 陣列開頭；結構化輸出用 response_format json_schema strict
+      const oaiMessages = [
+        { role: "system", content: systemStable + "\n\n" + systemDynamic },
+        ...messages.map((m) => ({ role: m.role, content: m.content }))
+      ];
+      const req = { model: MODEL, max_tokens: maxTokens, messages: oaiMessages };
+      if (schema) {
+        req.response_format = {
+          type: "json_schema",
+          json_schema: { name: schemaName || "result", strict: true, schema }
+        };
+      }
+      const res = await client.chat.completions.create(req);
+      const msg = res.choices[0].message;
+      if (msg.refusal) throw new Error("模型拒絕回應此內容");
+      const text = msg.content || "";
+      return schema ? JSON.parse(text) : text;
+    }
+  };
+} else if (PROVIDER === "anthropic" && process.env.ANTHROPIC_API_KEY) {
   const Anthropic = require("@anthropic-ai/sdk");
-  anthropic = new Anthropic();
+  const client = new Anthropic();
+  MODEL = process.env.MODEL || "claude-opus-4-8";
+  llm = {
+    provider: "anthropic",
+    model: MODEL,
+    async generate({ systemStable, systemDynamic, messages, schema, maxTokens }) {
+      // Anthropic：system 為獨立參數（ROLE_CORE 放快取區塊）；結構化輸出用 output_config.format
+      const response = await client.messages.create({
+        model: MODEL,
+        max_tokens: maxTokens,
+        system: [
+          { type: "text", text: systemStable, cache_control: { type: "ephemeral" } },
+          { type: "text", text: systemDynamic }
+        ],
+        messages,
+        ...(schema ? { output_config: { format: { type: "json_schema", schema } } } : {})
+      });
+      if (response.stop_reason === "refusal") throw new Error("模型拒絕回應此內容");
+      if (schema) {
+        const t = response.content.find((b) => b.type === "text");
+        return JSON.parse(t.text);
+      }
+      return response.content.filter((b) => b.type === "text").map((b) => b.text).join("\n");
+    }
+  };
 }
 
 const KNOWLEDGE = loadKnowledge();
@@ -24,14 +83,9 @@ const app = express();
 app.use(express.json({ limit: "10mb" }));
 app.use(express.static(path.join(__dirname, "public")));
 
-// 「先檢索、再一次生成」的核心：
-// 由伺服器在本地用關鍵字檢索出相關知識庫片段（瞬間、不佔 API 時間），
-// 直接塞進 system prompt，讓模型「單次呼叫」就回答，不再多趟往返呼叫工具。
-// contextQuery 為空或查無相關資料時，不注入任何知識庫內容（例如純寒暄）。
-function systemBlocks(featureText, contextQuery, retrieveOpts = {}) {
-  const blocks = [
-    { type: "text", text: prompts.ROLE_CORE, cache_control: { type: "ephemeral" } }
-  ];
+// 組出「本次動態 system 內容」＝功能指令 + （本地檢索到的知識庫參考資料）。
+// contextQuery 為空或查無相關資料時，不注入知識庫內容（例如純寒暄），prompt 更小更快。
+function buildDynamicSystem(featureText, contextQuery, retrieveOpts = {}) {
   let feature = featureText;
   if (contextQuery) {
     const ctx = retrieve(KNOWLEDGE.sections, contextQuery, retrieveOpts);
@@ -41,25 +95,19 @@ function systemBlocks(featureText, contextQuery, retrieveOpts = {}) {
         ctx;
     }
   }
-  blocks.push({ type: "text", text: feature });
-  return blocks;
+  return feature;
 }
 
 // 單次生成呼叫（無工具、無多趟往返）。schema 為 null 時回傳純文字。
-async function callGen(featureText, messages, schema, { maxTokens = 4000, contextQuery = null, retrieveOpts = {} } = {}) {
-  const response = await anthropic.messages.create({
-    model: MODEL,
-    max_tokens: maxTokens,
-    system: systemBlocks(featureText, contextQuery, retrieveOpts),
+async function callGen(featureText, messages, schema, { maxTokens = 4000, contextQuery = null, retrieveOpts = {}, schemaName } = {}) {
+  return llm.generate({
+    systemStable: prompts.ROLE_CORE,
+    systemDynamic: buildDynamicSystem(featureText, contextQuery, retrieveOpts),
     messages,
-    ...(schema ? { output_config: { format: { type: "json_schema", schema } } } : {})
+    schema,
+    schemaName,
+    maxTokens
   });
-  if (response.stop_reason === "refusal") throw new Error("模型拒絕回應此內容");
-  if (schema) {
-    const text = response.content.find((b) => b.type === "text");
-    return JSON.parse(text.text);
-  }
-  return response.content.filter((b) => b.type === "text").map((b) => b.text).join("\n");
 }
 
 // 從對話歷史取出業務講過的話（供檢索用；店長的話不列入檢索關鍵字）
@@ -337,7 +385,7 @@ app.get("/api/config", (req, res) => {
     qaSuggestions: config.qaSuggestions,
     knowledgeFiles: KNOWLEDGE.files,
     knowledgeDir: KNOWLEDGE_DIR,
-    demo: !anthropic,
+    demo: !llm,
     model: MODEL
   });
 });
@@ -349,7 +397,7 @@ app.post("/api/roleplay/turn", async (req, res) => {
     if (!theme || !config.difficulties[difficulty])
       return res.status(400).json({ error: "主題或難度不存在" });
 
-    if (!anthropic) {
+    if (!llm) {
       const salesTurns = history.filter((m) => m.role === "sales").length;
       const lastSales = history.filter((m) => m.role === "sales").pop();
       const isBad = /治療|生髮|治掉髮|藥|療效保證/.test(lastSales ? lastSales.text : "");
@@ -379,7 +427,7 @@ app.post("/api/roleplay/evaluate", async (req, res) => {
       return res.status(400).json({ error: "主題或難度不存在" });
 
     const roundCount = history.filter((m) => m.role === "sales").length;
-    if (!anthropic) return res.json({ ...DEMO_EVAL, rounds: Array.from({ length: roundCount }, () => DEMO_EVAL.rounds[0]) });
+    if (!llm) return res.json({ ...DEMO_EVAL, rounds: Array.from({ length: roundCount }, () => DEMO_EVAL.rounds[0]) });
 
     const messages = toApiMessages(history);
     messages.push({
@@ -402,7 +450,7 @@ app.post("/api/roleplay/evaluate", async (req, res) => {
 app.post("/api/qa", async (req, res) => {
   try {
     const { history } = req.body; // [{role:'user'|'assistant', text}]
-    if (!anthropic) return res.json({ answer: DEMO_QA });
+    if (!llm) return res.json({ answer: DEMO_QA });
     const messages = history.map((m) => ({ role: m.role, content: m.text }));
     const lastUser = [...history].reverse().find((m) => m.role === "user");
     const answer = await callGen(prompts.QA_INSTRUCTIONS, messages, null, {
@@ -420,7 +468,7 @@ app.post("/api/qa", async (req, res) => {
 app.post("/api/quiz/next", async (req, res) => {
   try {
     const { module, asked } = req.body;
-    if (!anthropic) return res.json(DEMO_QUIZ_Q);
+    if (!llm) return res.json(DEMO_QUIZ_Q);
     const mod = config.quizModules.find((x) => x.id === module);
     const result = await callGen(
       prompts.buildQuizNext(module, asked || []),
@@ -438,7 +486,7 @@ app.post("/api/quiz/next", async (req, res) => {
 app.post("/api/quiz/grade", async (req, res) => {
   try {
     const { question, answer } = req.body;
-    if (!anthropic) return res.json(DEMO_QUIZ_GRADE);
+    if (!llm) return res.json(DEMO_QUIZ_GRADE);
     // 批改直接使用出題時查證好的參考答案，不再查知識庫（單次呼叫，速度快）
     const result = await callGen(
       prompts.buildQuizGrade(),
@@ -465,7 +513,7 @@ app.post("/api/quiz/grade", async (req, res) => {
 app.post("/api/quiz/bank", async (req, res) => {
   try {
     let items;
-    if (!anthropic) {
+    if (!llm) {
       items = config.quizModules.map((m, i) => ({
         no: i + 1, module: m.name, type: "知識題",
         question: `（示範題）請說明「${m.name}」模組的一個重點。`,
@@ -534,5 +582,5 @@ app.post("/api/quiz/report", async (req, res) => {
 
 app.listen(PORT, () => {
   console.log(`O'right｜PRO 業務教育教練 http://localhost:${PORT}`);
-  console.log(anthropic ? `AI 模式（${MODEL}）` : "示範模式：未設定 ANTHROPIC_API_KEY，將使用固定腳本回覆");
+  console.log(llm ? `AI 模式（${PROVIDER} / ${MODEL}）` : "示範模式：未設定 API 金鑰（OPENAI_API_KEY 或 ANTHROPIC_API_KEY），將使用固定腳本回覆");
 });

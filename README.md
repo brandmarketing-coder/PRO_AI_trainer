@@ -19,11 +19,22 @@
 
 ```bash
 npm install
-copy .env.example .env   # 填入 ANTHROPIC_API_KEY
+copy .env.example .env   # 設定 PROVIDER 與對應金鑰（見下方）
 npm start                # http://localhost:3000
 ```
 
 > 未設定 API 金鑰時以「示範模式」運作（固定腳本），可先測介面。
+
+### 選擇 AI Provider（OpenAI 或 Claude）
+
+本專案支援兩家 AI，用 `.env` 的 `PROVIDER` 切換，程式不用改：
+
+| PROVIDER | 需要的金鑰 | 模型變數（選填） | 取得金鑰 |
+|---|---|---|---|
+| `openai` | `OPENAI_API_KEY` | `OPENAI_MODEL`（預設 `gpt-4o`） | platform.openai.com |
+| `anthropic` | `ANTHROPIC_API_KEY` | `MODEL`（預設 `claude-opus-4-8`） | platform.claude.com |
+
+`PROVIDER` 未指定時會自動判斷：有 `OPENAI_API_KEY` 就用 OpenAI，否則用 Anthropic。兩家的金鑰是不同系統、不能互用。切換 provider 後重啟伺服器即可；啟動訊息會顯示目前用的是哪家哪個模型。
 
 ## 部署完整版本
 
@@ -33,13 +44,13 @@ npm start                # http://localhost:3000
 
 1. 到 [render.com](https://render.com) 用 GitHub 帳號登入，選 **New → Web Service**，連結 `brandmarketing-coder/PRO_AI_trainer`
 2. Render 會讀到本專案的 `render.yaml` 自動帶入設定（Build：`npm install`／Start：`npm start`）
-3. 在環境變數加入 `ANTHROPIC_API_KEY`（必填）；`MODEL` 預設為 `claude-opus-4-8`，可不填
+3. 在環境變數加入：`PROVIDER=openai` ＋ `OPENAI_API_KEY`（用 OpenAI）；或 `PROVIDER=anthropic` ＋ `ANTHROPIC_API_KEY`（用 Claude）。模型變數選填
 4. 部署完成後會得到一個 `https://xxx.onrender.com` 網址，這就是完整可用版本
 
 ### 方式二：Railway
 
 1. 到 [railway.app](https://railway.app)，New Project → Deploy from GitHub repo → 選這個 repo
-2. Variables 加入 `ANTHROPIC_API_KEY`
+2. Variables 加入 `PROVIDER` 與對應金鑰（`OPENAI_API_KEY` 或 `ANTHROPIC_API_KEY`）
 3. Railway 會自動偵測 Node 專案並執行 `npm install` + `npm start`
 
 ### 知識庫在雲端部署時如何運作

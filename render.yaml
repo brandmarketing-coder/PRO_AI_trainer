@@ -6,7 +6,16 @@ services:
     buildCommand: npm install
     startCommand: npm start
     envVars:
+      # 選擇 AI provider：openai 或 anthropic
+      - key: PROVIDER
+        value: openai
+      # 用 OpenAI 時填這個（在 Render 後台設定，不寫進程式碼）
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4o
+      # 若改用 Claude，把 PROVIDER 改成 anthropic 並改填以下（可留著不影響）
       - key: ANTHROPIC_API_KEY
         sync: false
       - key: MODEL
-        value: claude-opus-4-8
+        value: claude-sonnet-4-6
