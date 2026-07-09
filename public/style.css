@@ -432,22 +432,31 @@ input:focus, textarea:focus { outline: 2px solid var(--sage); border-color: tran
 .result-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 14px 0 8px; }
 
 /* ── 知識問答 ── */
-.qa-starter { padding: 10px 4px 20px; }
-.qa-starter-title { font-size: 14.5px; font-weight: 700; color: var(--forest); margin-bottom: 14px; }
-.qa-cat { margin-bottom: 18px; }
-.qa-cat-label { font-size: 13px; font-weight: 700; color: var(--stone); margin-bottom: 8px; }
-.qa-q-list { display: flex; flex-direction: column; gap: 8px; }
-.qa-q {
+.qa-starter { padding: 8px 4px 20px; }
+.qa-starter-hero { text-align: center; padding: 22px 0 26px; }
+.qa-starter-icon {
+  width: 52px; height: 52px; margin: 0 auto 12px;
+  border-radius: 50%; background: var(--mist-soft);
+  display: flex; align-items: center; justify-content: center; font-size: 26px;
+}
+.qa-starter-h { font-size: 19px; font-weight: 700; color: var(--forest); letter-spacing: 0.3px; margin-bottom: 6px; }
+.qa-starter-sub { font-size: 13px; color: var(--stone); line-height: 1.6; }
+
+.qa-cat { margin-bottom: 16px; }
+.qa-cat-label { font-size: 13px; font-weight: 700; color: var(--ink); margin-bottom: 10px; display: flex; align-items: center; gap: 6px; }
+.qa-cat-icon { font-size: 15px; }
+.qa-cat-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.qa-chip {
   background: #fff;
   border: 1px solid var(--stone-line);
-  border-radius: 10px;
-  padding: 12px 14px;
-  font-size: 14px; line-height: 1.5;
+  border-radius: 18px;
+  padding: 8px 14px;
+  font-size: 13.5px; line-height: 1.4;
   color: var(--ink);
   cursor: pointer; font-family: inherit; text-align: left;
-  transition: border-color 0.15s;
+  transition: border-color 0.15s, background 0.15s;
 }
-.qa-q:hover, .qa-q:active { border-color: var(--sage); background: var(--mist-soft); }
+.qa-chip:hover, .qa-chip:active { border-color: var(--sage); background: var(--mist-soft); color: var(--forest); }
 
 .chips-bar {
   display: flex; gap: 8px;
@@ -565,14 +574,40 @@ input:focus, textarea:focus { outline: 2px solid var(--sage); border-color: tran
 }
 @keyframes toast-in { from { opacity: 0; transform: translate(-50%, 8px); } to { opacity: 1; transform: translate(-50%, 0); } }
 
-/* ── 桌機優化 ── */
+/* ── 桌機優化：內容置中收成「應用面板」，用底色襯托，不再是窄欄漂在大片空白裡 ── */
 @media (min-width: 700px) {
-  .container { padding-top: 40px; }
-  .hero { padding: 56px 0 44px; }
+  body { background: #eaeeeb; }
+
+  /* 對話類畫面（演練／問答）：置中收窄成一欄、白底、左右描邊，內部元素填滿欄寬。
+     不動高度數學（維持 flex:1 撐滿），只做水平置中，避免與 flex 佈局衝突。 */
+  .chat-layout {
+    max-width: 780px;
+    width: 100%;
+    margin: 0 auto;
+    background: #fff;
+    border-left: 1px solid var(--stone-line);
+    border-right: 1px solid var(--stone-line);
+  }
+  .chat-window, .input-bar, .chips-bar { max-width: none; }
+  .chat-window { padding: 22px 22px 12px; }
+  .bubble { font-size: 15.5px; }
+  .msg-row > div { max-width: 88%; }
+
+  /* 捲動類畫面（首頁／步驟／報告／測驗）：內容置中，底部留白 */
+  .screen.scroll { padding: 8px 0 40px; }
+  .container { padding-top: 36px; }
+  .hero { padding: 48px 0 40px; }
   .hero h1 { font-size: 28px; }
-  .chat-window, .input-bar, .chips-bar { max-width: 680px; }
+
   .result-actions { grid-template-columns: repeat(4, 1fr); }
+  .option-card { transition: border-color 0.15s, background 0.15s, transform 0.1s; }
   .option-card:hover { transform: translateY(-1px); }
+  .feature-card:hover { transform: translateY(-2px); }
+}
+
+/* 更寬的螢幕再放大一點面板 */
+@media (min-width: 1100px) {
+  .chat-layout { max-width: 860px; }
 }
 
 /* ── 靜態展示版提示 ── */

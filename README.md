@@ -13,7 +13,7 @@
    - 陌生開發內建六大關卡追蹤（開場破冰→需求探索→產品連結→綠色差異→異議處理→推進下一步）
    - 結束後產出「O'right｜PRO 業務訓練評估報告（固定評分標準版）」：100 分制五大構面 + L1/L2/L3 並行、逐輪完整原文與逐輪評分，共十一節，格式與主管 Word 模版一致，可下載 Word／PDF 或分享
 2. **知識問答**：依知識庫優先順序查找（10_PRO目錄 > 最新年度簡報 > 06 實證與禁用話術 > …），產品題以【業務理解】【產品重點】【可以這樣說】【進階說法】【提醒】結構回答
-3. **隨機測驗**：七大模組（品牌／療程／產品／陌生開發／FAQ／成分規格／話術）逐題測驗、逐題評分講解；可下載完整 70 題題庫 Word
+3. **隨機測驗**：七大模組（品牌／療程／產品／陌生開發／FAQ／成分規格／話術）逐題測驗、逐題評分講解；結束產出測驗成績報告 Word
 
 ## 本機安裝與啟動
 
@@ -68,6 +68,7 @@ npm start                # http://localhost:3000
 ## 客製化
 
 - **演練主題／難度／評分構面／六關卡／測驗模組／知識問答建議提問**：`config/trainer-config.json`
+- **知識問答 FAQ 快取（常見問題預先產好答案、命中即秒回）**：題目清單放 `config/faq-questions.json`，執行 `node scripts/build-faq.js` 產生 `config/faq.json`；改題目後重跑即可更新
 - **角色設定與各功能指令**：`prompts.js`
 - **報告模版（十一節）**：`report.js`
 - **知識庫檔案**：`knowledge/`（雲端部署用副本）；本機開發預設讀取 Desktop 上的即時資料夾
@@ -78,8 +79,9 @@ npm start                # http://localhost:3000
 server.js          Express 伺服器與 API 路由（含知識庫搜尋工具迴圈）
 prompts.js          角色設定與各功能提示詞
 knowledge.js         知識庫載入與關鍵字搜尋（切塊索引）
-report.js            Word／PDF 報告產生（含題庫 Word）
-config/              演練主題／難度／評分／建議提問設定
+report.js            Word／PDF 報告產生（演練評估報告、測驗成績報告）
+scripts/build-faq.js 依知識庫預先產生知識問答 FAQ 快取
+config/              演練/難度/評分/建議提問設定、FAQ 題目與快取
 knowledge/           知識庫 Markdown 副本（雲端部署用）
 fonts/               PDF 用中文字型（Noto Sans TC，確保任何平台皆可產生 PDF）
 public/              完整版前端（server.js 提供）

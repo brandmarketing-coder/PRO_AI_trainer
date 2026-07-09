@@ -186,20 +186,16 @@ function buildQuizGrade() {
 繁體中文、台灣用語。若答案中有講錯的產品資訊或禁用話術，必須直接點出並更正。`;
 }
 
-// ─── 題庫生成（單一模組 10 題；伺服器依序呼叫七大模組各一次，組成 70 題完整題庫） ───
-function buildQuizBankModule(module) {
-  return `【目前功能：建立完整題庫（單一模組）】
-針對模組「${module.name}」出 10 題：${module.scope}
-每題包含：type（題型）、question（題目）、focus（評分重點）、reference（參考回答方向）、l1（L1 表現描述）、l2（L2 表現描述）、l3（L3 表現描述）。
-題目要多元（知識題、情境題、話術題、判斷題），答案必須能在知識庫中找到依據（先用 search_knowledge 查證，不要用目錄標題自行推測），繁體中文、台灣用語。`;
-}
+// ─── FAQ 快取答案產生（供 scripts/build-faq.js 使用，語氣與知識問答一致） ───
+const FAQ_BUILD_INSTRUCTIONS = QA_INSTRUCTIONS +
+  "\n\n（這題是要預先寫進常見問答庫的標準答案，請直接給出最完整、可直接使用的版本。）";
 
 module.exports = {
   ROLE_CORE,
   buildRoleplayTurn,
   buildEvaluate,
   QA_INSTRUCTIONS,
+  FAQ_BUILD_INSTRUCTIONS,
   buildQuizNext,
-  buildQuizGrade,
-  buildQuizBankModule
+  buildQuizGrade
 };

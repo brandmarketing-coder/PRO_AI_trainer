@@ -567,20 +567,23 @@ function renderQaStarter() {
   const wrap = $("qa-categories");
   wrap.innerHTML = "";
   (CONFIG.qaSuggestions || []).forEach((cat) => {
-    const div = document.createElement("div");
-    div.className = "qa-cat";
-    div.innerHTML = `<div class="qa-cat-label">${cat.icon} ${esc(cat.label)}</div>`;
-    const list = document.createElement("div");
-    list.className = "qa-q-list";
+    const sec = document.createElement("div");
+    sec.className = "qa-cat";
+    const header = document.createElement("div");
+    header.className = "qa-cat-label";
+    header.innerHTML = `<span class="qa-cat-icon">${cat.icon}</span>${esc(cat.label)}`;
+    const chips = document.createElement("div");
+    chips.className = "qa-cat-chips";
     cat.questions.forEach((q) => {
       const btn = document.createElement("button");
-      btn.className = "qa-q";
+      btn.className = "qa-chip";
       btn.textContent = q;
       btn.onclick = () => sendQa(q);
-      list.appendChild(btn);
+      chips.appendChild(btn);
     });
-    div.appendChild(list);
-    wrap.appendChild(div);
+    sec.appendChild(header);
+    sec.appendChild(chips);
+    wrap.appendChild(sec);
   });
 }
 
@@ -805,27 +808,6 @@ $("btn-quiz-report").onclick = async (e) => {
     btn.disabled = false;
     btn.textContent = "下載測驗報告";
   }
-};
-
-$("btn-quiz-bank").onclick = (e) => {
-  const btn = e.currentTarget;
-  confirmModal(
-    { title: "下載完整題庫？", body: "會依知識庫產生七大模組共 70 題的 Word 題庫，需要數分鐘，期間請不要關閉頁面。", okText: "開始產生", cancelText: "取消" },
-    async () => {
-      btn.disabled = true;
-      btn.textContent = "📄 題庫產生中（約需數分鐘）…";
-      try {
-        const blob = await apiBlob("/api/quiz/bank", {});
-        triggerDownload(blob, `OrightPRO業務訓練題庫_${todayStr().replaceAll("/", "")}.docx`);
-        toast("題庫已下載");
-      } catch (err) {
-        toast(err.message);
-      } finally {
-        btn.disabled = false;
-        btn.textContent = "📄 下載完整題庫（70 題 Word，需數分鐘）";
-      }
-    }
-  );
 };
 
 // ═════════════════ 初始化 ═════════════════

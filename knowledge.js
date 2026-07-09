@@ -111,26 +111,47 @@ function loadKnowledge() {
   return { files: ordered, sections };
 }
 
-// 依查詢字串對章節評分（標題命中權重較高、完整片語命中加分，優先序高的檔案同分排前）
+// 中文常見填充/疑問詞——自然問句裡的這些字會產生雜訊 n-gram，比對前先移除，
+// 讓真正的內容詞（產品名、規格詞）主導檢索排名。
+const STOPWORDS = [
+  "有哪些", "哪些", "怎麼", "為什麼", "什麼", "多少", "可以", "請問", "如何", "是否",
+  "有沒有", "跟", "和", "與", "的", "了", "嗎", "呢", "喔", "啊", "要", "會", "能",
+  "我", "你", "您", "他", "它", "這", "那", "些", "個", "還是", "或", "以及", "一下",
+  "介紹", "說明", "告訴", "幫我", "想", "問", "回", "怎樣", "如果", "客人", "店長", "業務"
+];
+
+// 依查詢字串對章節評分。作法：去填充詞→取內容詞的 2~4-gram（長詞加重權重，
+// 產品名等長字串命中最有代表性）→標題命中加成→高優先檔案同分排前。
 function scoreSections(sections, query, file) {
   let candidates = sections;
   if (file) candidates = candidates.filter((s) => s.file === file);
-  const q = (query || "").trim().toLowerCase();
-  // 中文無空白斷詞，除了用分隔符切，也用 2-gram 補抓片語命中
-  const rough = q.split(/[\s,，、。/／()（）:：「」【】?？!！~～]+/).filter(Boolean);
-  const terms = new Set(rough);
+  let q = (query || "").trim().toLowerCase();
+  const rawFull = q;
+  // 先移除填充/疑問詞，避免「有哪些、跟、多少」之類的 2-gram 污染排名
+  STOPWORDS.forEach((w) => { q = q.split(w).join(" "); });
+  const rough = q.split(/[\s,，、。/／()（）:：「」『』【】?？!！~～．.·、0-9]+/).filter((w) => w.length >= 2);
+  // 每個內容詞取 2/3/4-gram，權重＝字數（4-gram 命中比 2-gram 更能代表相關性）
+  const grams = new Map(); // gram -> weight
   rough.forEach((w) => {
-    for (let i = 0; i + 2 <= w.length; i++) terms.add(w.slice(i, i + 2));
+    for (let n = 2; n <= 4; n++) {
+      for (let i = 0; i + n <= w.length; i++) {
+        const g = w.slice(i, i + n);
+        grams.set(g, Math.max(grams.get(g) || 0, n));
+      }
+    }
+    // 完整內容詞本身（如「咖啡因養髮液」）給更高權重
+    if (w.length >= 2) grams.set(w, Math.max(grams.get(w) || 0, w.length + 2));
   });
   return candidates
     .map((s) => {
-      const hay = (s.heading + " " + s.text).toLowerCase();
-      let score = 0;
-      if (q && hay.includes(q)) score += 12;
-      terms.forEach((t) => { if (t.length >= 2 && hay.includes(t)) score += 1; });
-      // 標題命中額外加分
       const head = s.heading.toLowerCase();
-      terms.forEach((t) => { if (t.length >= 2 && head.includes(t)) score += 1; });
+      const hay = (head + " " + s.text).toLowerCase();
+      let score = 0;
+      if (rawFull.length >= 4 && hay.includes(rawFull)) score += 15; // 整句命中
+      grams.forEach((weight, g) => {
+        if (hay.includes(g)) score += weight;
+        if (head.includes(g)) score += weight; // 標題命中再加成
+      });
       return { ...s, score };
     })
     .filter((s) => s.score > 0)

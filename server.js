@@ -7,7 +7,10 @@ const express = require("express");
 const config = require("./config/trainer-config.json");
 const { loadKnowledge, retrieve, KNOWLEDGE_DIR } = require("./knowledge");
 const prompts = require("./prompts");
-const { buildDocx, buildPdf, buildQuizBankDocx, buildQuizReportDocx } = require("./report");
+const { buildDocx, buildPdf, buildQuizReportDocx } = require("./report");
+const fs = require("fs");
+
+const PORT = process.env.PORT || 3000;
 
 // ────────────────────────── LLM Provider（可切換 OpenAI / Anthropic） ──────────────────────────
 // 用 PROVIDER 環境變數選擇；未指定時依現有金鑰自動判斷（OpenAI 優先）。
@@ -78,6 +81,55 @@ if (PROVIDER === "openai" && process.env.OPENAI_API_KEY) {
 }
 
 const KNOWLEDGE = loadKnowledge();
+
+// ── 知識問答 FAQ 快取 ──
+// config/faq.json 是預先產好答案的常見問題庫（不顯示在畫面上，純加速用）。
+// 使用者提問時先比對 FAQ，命中就「零 API 呼叫、瞬間回覆」；沒命中才走即時檢索生成。
+// 由 scripts/build-faq.js 依知識庫產生，可隨時擴充題目後重新產生。
+let FAQ = [];
+(function loadFaq() {
+  try {
+    const p = path.join(__dirname, "config", "faq.json");
+    if (fs.existsSync(p)) {
+      FAQ = JSON.parse(fs.readFileSync(p, "utf8"));
+      console.log(`[faq] 已載入 ${FAQ.length} 題常見問答快取`);
+    }
+  } catch (e) {
+    console.warn("[faq] 載入失敗：", e.message);
+  }
+})();
+
+// 把問句正規化（去標點空白、轉小寫）後比對；完全相同或高度重疊即視為命中
+function normalizeQ(s) {
+  return String(s || "").toLowerCase().replace(/[\s,，。、！？!?~～．.：:「」『』（）()]/g, "");
+}
+function matchFaq(question) {
+  if (!FAQ.length) return null;
+  const nq = normalizeQ(question);
+  if (!nq) return null;
+  // 1) 完全相同
+  let hit = FAQ.find((f) => normalizeQ(f.q) === nq);
+  if (hit) return hit.a;
+  // 2) 互為包含（使用者問句包含 FAQ 題目、或反之），且長度接近
+  hit = FAQ.find((f) => {
+    const nf = normalizeQ(f.q);
+    return (nq.includes(nf) || nf.includes(nq)) && Math.abs(nf.length - nq.length) <= 4;
+  });
+  return hit ? hit.a : null;
+}
+
+// 去除模型偶爾夾帶的 Markdown 記號（gpt-4o 特別愛用），確保知識問答維持乾淨純文字
+function stripMarkdown(text) {
+  return String(text || "")
+    .replace(/^\s{0,3}#{1,6}\s+/gm, "")      // 標題 #
+    .replace(/^\s{0,3}>\s?/gm, "")           // 引用 >
+    .replace(/\*\*(.+?)\*\*/g, "$1")          // 粗體 **
+    .replace(/(^|[^*])\*(?!\s)([^*\n]+?)\*(?!\*)/g, "$1$2") // 斜體 *
+    .replace(/`{1,3}([^`]+)`{1,3}/g, "$1")   // 行內 code `
+    .replace(/^\s{0,3}[-*+]\s+/gm, "・")      // 項目符號 - * + → ・
+    .replace(/\n{3,}/g, "\n\n")               // 過多空行收斂
+    .trim();
+}
 
 const app = express();
 app.use(express.json({ limit: "10mb" }));
@@ -263,34 +315,6 @@ const QUIZ_GRADE_SCHEMA = {
   additionalProperties: false
 };
 
-// 題庫改成每個模組各出一次（10 題／次），而非一次生 70 題——
-// 一次生 70 題需要在單一 system prompt 下涵蓋全部七大模組的查詢，容易讓 AI 查詢範圍過廣、
-// 品質下降，且單次輸出量大；拆成 7 次呼叫讓每次的知識庫搜尋更聚焦，no/module 由伺服器統一編號。
-const QUIZ_BANK_MODULE_SCHEMA = {
-  type: "object",
-  properties: {
-    items: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: {
-          type: { type: "string" },
-          question: { type: "string" },
-          focus: { type: "string" },
-          reference: { type: "string" },
-          l1: { type: "string" },
-          l2: { type: "string" },
-          l3: { type: "string" }
-        },
-        required: ["type", "question", "focus", "reference", "l1", "l2", "l3"],
-        additionalProperties: false
-      }
-    }
-  },
-  required: ["items"],
-  additionalProperties: false
-};
-
 // ────────────────────────── Demo 資料（未設 API 金鑰時） ──────────────────────────
 const DEMO_TURN = {
   reply: "嗯……你們跟我現在用的牌子差在哪？大家不是都說自己天然？",
@@ -450,14 +474,23 @@ app.post("/api/roleplay/evaluate", async (req, res) => {
 app.post("/api/qa", async (req, res) => {
   try {
     const { history } = req.body; // [{role:'user'|'assistant', text}]
+    const lastUser = [...history].reverse().find((m) => m.role === "user");
+
+    // 先查 FAQ 快取：命中就瞬間回覆、不呼叫 AI（僅在單輪提問時套用，多輪追問走即時生成以保留上下文）
+    const userTurns = history.filter((m) => m.role === "user").length;
+    if (lastUser && userTurns === 1) {
+      const cached = matchFaq(lastUser.text);
+      if (cached) return res.json({ answer: cached, cached: true });
+    }
+
     if (!llm) return res.json({ answer: DEMO_QA });
     const messages = history.map((m) => ({ role: m.role, content: m.text }));
-    const lastUser = [...history].reverse().find((m) => m.role === "user");
-    const answer = await callGen(prompts.QA_INSTRUCTIONS, messages, null, {
+    let answer = await callGen(prompts.QA_INSTRUCTIONS, messages, null, {
       maxTokens: 2000,
       contextQuery: lastUser ? lastUser.text : null,
       retrieveOpts: { limit: 3, minScore: 2 }
     });
+    answer = stripMarkdown(answer);
     res.json({ answer });
   } catch (err) {
     console.error("qa error:", err);
@@ -510,38 +543,6 @@ app.post("/api/quiz/grade", async (req, res) => {
   }
 });
 
-app.post("/api/quiz/bank", async (req, res) => {
-  try {
-    let items;
-    if (!llm) {
-      items = config.quizModules.map((m, i) => ({
-        no: i + 1, module: m.name, type: "知識題",
-        question: `（示範題）請說明「${m.name}」模組的一個重點。`,
-        focus: "示範模式範例", reference: "設定 API 金鑰後將依知識庫產生完整 70 題題庫。",
-        l1: "只講產品/知識本身", l2: "能連結需求", l3: "能連結價值與下一步"
-      }));
-    } else {
-      // 依模組逐一產生（每次 10 題），檢索該模組相關片段後單次生成
-      items = [];
-      for (const mod of config.quizModules) {
-        const result = await callGen(
-          prompts.buildQuizBankModule(mod),
-          [{ role: "user", content: `請針對「${mod.name}」模組出 10 題。` }],
-          QUIZ_BANK_MODULE_SCHEMA,
-          { maxTokens: 8000, contextQuery: mod.scope, retrieveOpts: { limit: 4, minScore: 1 } }
-        );
-        result.items.forEach((it) => items.push({ ...it, no: items.length + 1, module: mod.name }));
-      }
-    }
-    const buffer = await buildQuizBankDocx(items);
-    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
-    res.setHeader("Content-Disposition", "attachment; filename=quiz-bank.docx");
-    res.send(buffer);
-  } catch (err) {
-    console.error("quiz/bank error:", err);
-    res.status(500).json({ error: err.message || "伺服器錯誤" });
-  }
-});
 
 app.post("/api/report/docx", async (req, res) => {
   try {
