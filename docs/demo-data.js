@@ -178,6 +178,14 @@
     };
   })();
 
+  // 知識庫管理：靜態展示版範例檔案清單（唯讀）
+  const KB_DEMO_FILES = [
+    { name: "01_品牌與業務定位.md", size: 75776, sha: null },
+    { name: "03_業務FAQ與標準回答.md", size: 48231, sha: null },
+    { name: "04_產品成分與分類表.md", size: 36102, sha: null },
+    { name: "10_PRO目錄.md", size: 128994, sha: null }
+  ];
+
   window.DEMO_DATA = {
     async handle(path, body) {
       switch (path) {
@@ -220,6 +228,19 @@
           }
           return DASHBOARD_DEMO;
         }
+        case "/api/knowledge/list":
+          await sleep(250);
+          if (!body || body.password !== "12890464") { const e = new Error("密碼錯誤"); throw e; }
+          return { files: KB_DEMO_FILES, store: "demo", repo: null };
+        case "/api/knowledge/get":
+          await sleep(200);
+          return { filename: body.filename, content: "（靜態展示版）此為範例內容，完整版會顯示知識檔實際內容。" };
+        case "/api/knowledge/upload":
+          await sleep(400);
+          throw new Error("靜態展示版無法上傳知識檔，請使用完整部署版本。");
+        case "/api/knowledge/delete":
+          await sleep(200);
+          throw new Error("靜態展示版無法刪除知識檔，請使用完整部署版本。");
         default:
           throw new Error("靜態展示版不支援此功能，請使用完整部署版本。");
       }

@@ -280,11 +280,38 @@
         </div>
         <!-- 已解鎖：內容 -->
         <div id="report-content" class="hidden">
-          <div id="report-summary" class="report-summary"></div>
-          <h3>業務練習狀況</h3>
-          <p class="hint">紅色為尚未練習者。分數為最近一次演練結果。</p>
-          <div id="report-roster"></div>
-          <div id="report-others"></div>
+          <div class="report-tabs">
+            <button id="tab-scores" class="rtab active">分數彙整</button>
+            <button id="tab-kb" class="rtab">知識庫管理</button>
+          </div>
+
+          <!-- 分頁一：分數彙整 -->
+          <section id="pane-scores">
+            <div id="report-summary" class="report-summary"></div>
+            <h3>業務練習狀況</h3>
+            <p class="hint">紅色為尚未練習者。分數為最近一次演練結果。</p>
+            <div id="report-roster"></div>
+            <div id="report-others"></div>
+          </section>
+
+          <!-- 分頁二：知識庫管理 -->
+          <section id="pane-kb" class="hidden">
+            <div class="step-head">
+              <h3>上傳知識檔</h3>
+              <p class="hint">.md 檔直接上傳；其他格式（.txt／.csv／直接貼上文字）會由 AI 自動整理成 Markdown。檔案存回 GitHub，網站於重新部署後（約數分鐘）套用。</p>
+            </div>
+            <label class="field-label" for="kb-file">選擇檔案（.md／.txt／.csv／.json／.html）</label>
+            <input id="kb-file" type="file" accept=".md,.txt,.csv,.json,.html,.htm,.xml,.markdown" />
+            <label class="field-label" for="kb-paste">或直接貼上內容（Word／Excel／PDF 可複製貼上）</label>
+            <textarea id="kb-paste" rows="5" placeholder="把資料內容貼進來，AI 會整理成 Markdown 知識檔"></textarea>
+            <label class="field-label" for="kb-name">檔名</label>
+            <input id="kb-name" type="text" placeholder="例如：13_夏季活動方案" autocomplete="off" />
+            <button id="btn-kb-upload" class="btn-primary btn-block">上傳並整理</button>
+            <div id="kb-upload-msg" class="hint"></div>
+
+            <h3 style="margin-top:20px">現有知識檔</h3>
+            <div id="kb-list"></div>
+          </section>
         </div>
       </div>
     </main>

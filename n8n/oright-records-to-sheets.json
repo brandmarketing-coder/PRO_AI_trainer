@@ -1,0 +1,78 @@
+{
+  "name": "O'right 演練紀錄 → Google Sheet",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "oright-training-record",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "webhook-record",
+      "name": "接收演練紀錄 Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [260, 300],
+      "webhookId": "oright-training-record"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 把 App 傳來的演練紀錄整理成 Google Sheet 一列（欄名需與試算表標題列一致）\nconst b = $input.first().json.body || $input.first().json;\nconst join = (a) => Array.isArray(a) ? a.join('、') : (a || '');\nconst transcript = Array.isArray(b.transcript)\n  ? b.transcript.map(t => `${t.role === 'sales' ? '業務' : '店長'}：${t.text}`).join('\\n')\n  : '';\nconst cs = b.construct_scores || {};\nconst csStr = Object.keys(cs).map(k => `${k}:${cs[k]}`).join('、');\nreturn [{ json: {\n  '時間': b.date || '',\n  '業務': b.name || '',\n  '主題': b.theme || '',\n  '模式': b.mode || '',\n  '總分': (b.total_score ?? ''),\n  '層級': b.level || '',\n  '層級說明': b.level_note || '',\n  '待加強面向': join(b.weak_areas),\n  '各面向分數': csStr,\n  '逐字稿': transcript\n} }];"
+      },
+      "id": "format-row",
+      "name": "整理成試算表欄位",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 300]
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "請填入你的_GOOGLE_SHEET_ID",
+          "mode": "id"
+        },
+        "sheetName": {
+          "__rl": true,
+          "value": "工作表1",
+          "mode": "name"
+        },
+        "columns": {
+          "mappingMode": "autoMapInputData",
+          "value": {},
+          "matchingColumns": []
+        },
+        "options": {}
+      },
+      "id": "append-sheet",
+      "name": "寫入 Google Sheet",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [740, 300]
+    },
+    {
+      "parameters": {
+        "content": "## 設定步驟\n1. 開啟本節點左側「接收演練紀錄 Webhook」，複製 Production URL。\n2. 把該 URL 貼到 Render 環境變數 `N8N_WEBHOOK_URL`，重新部署。\n3. 在「寫入 Google Sheet」節點：連結你的 Google 帳號、填入試算表 ID、確認分頁名稱。\n4. Google Sheet 第一列（標題列）請建立這些欄名：\n   時間 ｜ 業務 ｜ 主題 ｜ 模式 ｜ 總分 ｜ 層級 ｜ 層級說明 ｜ 待加強面向 ｜ 各面向分數 ｜ 逐字稿\n5. 存檔並 Activate 這個 workflow。\n\n### 選配：AI Agent 分析\n另開一個 workflow，用 Google Sheets Trigger（新增列時）或排程讀取本表，接 AI Agent 節點做逐字稿分析，結果寫回同列或另一分頁。",
+        "height": 320,
+        "width": 420,
+        "color": 4
+      },
+      "id": "setup-note",
+      "name": "設定說明",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [240, 420]
+    }
+  ],
+  "connections": {
+    "接收演練紀錄 Webhook": {
+      "main": [[{ "node": "整理成試算表欄位", "type": "main", "index": 0 }]]
+    },
+    "整理成試算表欄位": {
+      "main": [[{ "node": "寫入 Google Sheet", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "active": false
+}

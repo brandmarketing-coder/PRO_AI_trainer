@@ -649,6 +649,153 @@ app.post("/api/report/dashboard", (req, res) => {
   });
 });
 
+// ══════════════════ 知識庫管理（主管後台上傳 → 存回 GitHub） ══════════════════
+// 設計說明：Render 磁碟是暫存的，直接寫本機檔案重新部署就會消失。因此正式環境把知識檔
+// 存回 GitHub repo 的 knowledge/ 目錄（透過 GitHub Contents API），commit 後 Render 會自動
+// 重新部署並載入新知識。未設 GITHUB_TOKEN 時（本機開發）退回寫入本機 KNOWLEDGE_DIR。
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN || "";
+const GITHUB_REPO = process.env.GITHUB_REPO || "brandmarketing-coder/PRO_AI_trainer";
+const GITHUB_BRANCH = process.env.GITHUB_BRANCH || "main";
+const GH_KNOWLEDGE_DIR = (process.env.GITHUB_KNOWLEDGE_DIR || "knowledge").replace(/^\/|\/$/g, "");
+const useGitHub = () => !!GITHUB_TOKEN;
+
+async function ghApi(method, urlPath, body) {
+  const res = await fetch(`https://api.github.com${urlPath}`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${GITHUB_TOKEN}`,
+      Accept: "application/vnd.github+json",
+      "X-GitHub-Api-Version": "2022-11-28",
+      "User-Agent": "oright-salon-trainer",
+      "Content-Type": "application/json"
+    },
+    body: body ? JSON.stringify(body) : undefined
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.message || `GitHub API ${res.status}`);
+  return data;
+}
+const ghPath = (name) => `/repos/${GITHUB_REPO}/contents/${GH_KNOWLEDGE_DIR}/${encodeURIComponent(name)}`;
+
+async function listKnowledge() {
+  if (useGitHub()) {
+    const data = await ghApi("GET", `/repos/${GITHUB_REPO}/contents/${GH_KNOWLEDGE_DIR}?ref=${encodeURIComponent(GITHUB_BRANCH)}`);
+    return (Array.isArray(data) ? data : [])
+      .filter((f) => f.type === "file" && /\.md$/i.test(f.name))
+      .map((f) => ({ name: f.name, size: f.size, sha: f.sha }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }
+  if (!fs.existsSync(KNOWLEDGE_DIR)) return [];
+  return fs.readdirSync(KNOWLEDGE_DIR)
+    .filter((f) => /\.md$/i.test(f))
+    .map((f) => ({ name: f, size: fs.statSync(path.join(KNOWLEDGE_DIR, f)).size, sha: null }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+async function getKnowledge(filename) {
+  const safe = path.basename(filename);
+  if (useGitHub()) {
+    const data = await ghApi("GET", `${ghPath(safe)}?ref=${encodeURIComponent(GITHUB_BRANCH)}`);
+    return Buffer.from(data.content || "", "base64").toString("utf8");
+  }
+  return fs.readFileSync(path.join(KNOWLEDGE_DIR, safe), "utf8");
+}
+async function saveKnowledge(filename, content) {
+  const safe = path.basename(filename);
+  if (useGitHub()) {
+    let sha;
+    try { sha = (await ghApi("GET", `${ghPath(safe)}?ref=${encodeURIComponent(GITHUB_BRANCH)}`)).sha; } catch {}
+    const body = {
+      message: `知識庫：${sha ? "更新" : "新增"} ${safe}（後台上傳）`,
+      content: Buffer.from(content, "utf8").toString("base64"),
+      branch: GITHUB_BRANCH
+    };
+    if (sha) body.sha = sha;
+    const r = await ghApi("PUT", ghPath(safe), body);
+    return { updated: !!sha, commit: r.commit && r.commit.sha };
+  }
+  if (!fs.existsSync(KNOWLEDGE_DIR)) fs.mkdirSync(KNOWLEDGE_DIR, { recursive: true });
+  const dest = path.join(KNOWLEDGE_DIR, safe);
+  const existed = fs.existsSync(dest);
+  fs.writeFileSync(dest, content);
+  return { updated: existed };
+}
+async function deleteKnowledge(filename, sha) {
+  const safe = path.basename(filename);
+  if (useGitHub()) {
+    if (!sha) sha = (await ghApi("GET", `${ghPath(safe)}?ref=${encodeURIComponent(GITHUB_BRANCH)}`)).sha;
+    await ghApi("DELETE", ghPath(safe), { message: `知識庫：刪除 ${safe}（後台）`, sha, branch: GITHUB_BRANCH });
+    return;
+  }
+  const p = path.join(KNOWLEDGE_DIR, safe);
+  if (fs.existsSync(p)) fs.unlinkSync(p);
+}
+
+// 把非 Markdown 的原始資料（貼上的文字、.txt/.csv 等）交給 AI 整理成乾淨的繁體 Markdown 知識檔。
+async function convertToMarkdown(rawText, filename) {
+  const instr =
+    "你是 O'right 知識庫整理助理。使用者會提供一份原始資料（可能來自 Word、Excel、PDF、網頁或雜亂純文字）。\n" +
+    "請整理成一份乾淨、結構清楚的繁體中文 Markdown 知識文件：\n" +
+    "• 用 # ／ ## ／ ### 分層標題，重點以「-」條列；\n" +
+    "• 完整保留所有事實與數字（價格、容量、成分、實證數據、話術）一字不改，不得杜撰或補充原文沒有的內容；\n" +
+    "• 移除亂碼、頁碼、重複空白與無意義符號；表格可用 Markdown 表格或條列呈現。\n" +
+    "只輸出整理後的 Markdown 本文，不要加任何說明或前後語。";
+  const out = await llm.generate({
+    systemStable: prompts.ROLE_CORE,
+    systemDynamic: instr,
+    messages: [{ role: "user", content: `檔名：${filename}\n\n原始內容：\n${String(rawText).slice(0, 24000)}` }],
+    maxTokens: 4000
+  });
+  return toTraditional(typeof out === "string" ? out : String(out || ""));
+}
+
+const gate = (req, res) => {
+  if ((req.body || {}).password !== REPORT_PASSWORD) { res.status(401).json({ error: "密碼錯誤" }); return false; }
+  return true;
+};
+
+app.post("/api/knowledge/list", async (req, res) => {
+  if (!gate(req, res)) return;
+  try {
+    res.json({ files: await listKnowledge(), store: useGitHub() ? "github" : "local", repo: useGitHub() ? GITHUB_REPO : null });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post("/api/knowledge/get", async (req, res) => {
+  if (!gate(req, res)) return;
+  try { res.json({ filename: req.body.filename, content: await getKnowledge(req.body.filename) }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post("/api/knowledge/upload", async (req, res) => {
+  if (!gate(req, res)) return;
+  const { filename, content, convert } = req.body || {};
+  if (!filename || !content || !String(content).trim()) return res.status(400).json({ error: "缺少檔名或內容" });
+  try {
+    let name = String(filename).trim().replace(/[\\/]/g, "_");
+    const isMd = /\.md$/i.test(name);
+    let md = String(content);
+    let converted = false;
+    if (!isMd || convert) {
+      if (!llm) return res.status(503).json({ error: "尚未設定 AI 金鑰，無法自動轉換；請上傳 .md 檔" });
+      md = await convertToMarkdown(content, name);
+      name = name.replace(/\.[^.]+$/, "") + ".md";
+      converted = true;
+    } else {
+      md = toTraditional(md); // .md 直接上傳也統一轉繁體
+    }
+    if (!/\.md$/i.test(name)) name += ".md";
+    const result = await saveKnowledge(name, md);
+    res.json({ ok: true, filename: name, converted, store: useGitHub() ? "github" : "local", ...result });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post("/api/knowledge/delete", async (req, res) => {
+  if (!gate(req, res)) return;
+  if (!req.body.filename) return res.status(400).json({ error: "缺少檔名" });
+  try { await deleteKnowledge(req.body.filename, req.body.sha); res.json({ ok: true }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
 app.post("/api/quiz/next", async (req, res) => {
   try {
     const { module, asked } = req.body;

@@ -867,11 +867,15 @@ $("btn-quiz-report").onclick = async (e) => {
 };
 
 // ═════════════════ 報表後台（主管專用） ═════════════════
+let reportPw = ""; // 解鎖後暫存密碼，供知識庫管理 API 沿用（僅存在記憶體、離開報表即清）
+
 $("btn-report").onclick = () => {
   // 每次進入都回到鎖定狀態，需重新輸入密碼
   $("report-lock").classList.remove("hidden");
   $("report-content").classList.add("hidden");
   $("report-pw").value = "";
+  reportPw = "";
+  switchReportTab("scores");
   go("report");
   $("report-pw").focus();
 };
@@ -884,6 +888,7 @@ async function unlockReport() {
   btn.textContent = "驗證中…";
   try {
     const data = await api("/api/report/dashboard", { password: pw });
+    reportPw = pw;
     renderDashboard(data);
     $("report-lock").classList.add("hidden");
     $("report-content").classList.remove("hidden");
@@ -896,6 +901,115 @@ async function unlockReport() {
 }
 $("btn-report-unlock").onclick = unlockReport;
 $("report-pw").addEventListener("keydown", (e) => { if (e.key === "Enter") unlockReport(); });
+
+// ── 報表分頁切換 ──
+function switchReportTab(which) {
+  const isKb = which === "kb";
+  $("tab-scores").classList.toggle("active", !isKb);
+  $("tab-kb").classList.toggle("active", isKb);
+  $("pane-scores").classList.toggle("hidden", isKb);
+  $("pane-kb").classList.toggle("hidden", !isKb);
+  if (isKb) loadKbList();
+}
+$("tab-scores").onclick = () => switchReportTab("scores");
+$("tab-kb").onclick = () => switchReportTab("kb");
+
+// ── 知識庫管理 ──
+async function loadKbList() {
+  const box = $("kb-list");
+  box.innerHTML = `<p class="hint">載入中…</p>`;
+  try {
+    const data = await api("/api/knowledge/list", { password: reportPw });
+    const store = data.store === "github" ? `GitHub（${esc(data.repo)}）` : "本機（暫存）";
+    if (!data.files.length) {
+      box.innerHTML = `<p class="hint">目前沒有知識檔。儲存位置：${store}</p>`;
+      return;
+    }
+    const rows = data.files.map((f) => {
+      const kb = (f.size / 1024).toFixed(f.size < 10240 ? 1 : 0);
+      return `<tr>` +
+        `<td>${esc(f.name)}</td>` +
+        `<td>${kb} KB</td>` +
+        `<td class="kb-actions">` +
+        `<button class="kb-btn" data-view="${esc(f.name)}">檢視</button>` +
+        `<button class="kb-btn kb-del" data-del="${esc(f.name)}" data-sha="${esc(f.sha || "")}">刪除</button>` +
+        `</td></tr>`;
+    }).join("");
+    box.innerHTML =
+      `<p class="hint">儲存位置：${store}</p>` +
+      `<div class="table-scroll"><table class="report-table">` +
+      `<thead><tr><th>檔名</th><th>大小</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    box.querySelectorAll("[data-view]").forEach((b) => b.onclick = () => viewKb(b.dataset.view));
+    box.querySelectorAll("[data-del]").forEach((b) => b.onclick = () => deleteKb(b.dataset.del, b.dataset.sha));
+  } catch (err) {
+    box.innerHTML = `<p class="hint">讀取失敗：${esc(err.message)}</p>`;
+  }
+}
+
+async function uploadKb() {
+  const file = $("kb-file").files[0];
+  const paste = $("kb-paste").value.trim();
+  let content = "", srcName = "", isMdFile = false;
+  if (file) {
+    content = await file.text();
+    srcName = file.name;
+    isMdFile = /\.(md|markdown)$/i.test(file.name);
+  } else if (paste) {
+    content = paste;
+  } else {
+    toast("請選擇檔案或貼上內容"); return;
+  }
+  let filename = ($("kb-name").value.trim() || srcName).trim();
+  if (!filename) { toast("請輸入檔名"); return; }
+  const convert = !isMdFile; // 非 .md 檔或貼上文字 → 交給 AI 整理
+
+  const btn = $("btn-kb-upload");
+  const msg = $("kb-upload-msg");
+  btn.disabled = true;
+  btn.textContent = convert ? "AI 整理中…" : "上傳中…";
+  msg.textContent = "";
+  try {
+    const r = await api("/api/knowledge/upload", { password: reportPw, filename, content, convert });
+    const where = r.store === "github" ? "已存回 GitHub，網站將於重新部署後（約數分鐘）套用" : "已存入本機";
+    msg.textContent = `✓ ${r.converted ? "已由 AI 整理並" : ""}上傳「${r.filename}」（${r.updated ? "更新" : "新增"}）。${where}。`;
+    $("kb-file").value = "";
+    $("kb-paste").value = "";
+    $("kb-name").value = "";
+    loadKbList();
+  } catch (err) {
+    msg.textContent = "上傳失敗：" + err.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "上傳並整理";
+  }
+}
+$("btn-kb-upload").onclick = uploadKb;
+
+async function viewKb(name) {
+  try {
+    const data = await api("/api/knowledge/get", { password: reportPw, filename: name });
+    const preview = data.content.slice(0, 6000) + (data.content.length > 6000 ? "\n…（僅顯示前段）" : "");
+    confirmModal({ title: name, body: preview, okText: "關閉", cancelText: "關閉" }, () => {});
+  } catch (err) {
+    toast("讀取失敗：" + err.message);
+  }
+}
+
+function deleteKb(name, sha) {
+  confirmModal({
+    title: `刪除知識檔？`,
+    body: `確定刪除「${name}」？此動作會從儲存位置移除該檔案，需重新部署後生效。`,
+    okText: "刪除", cancelText: "取消"
+  }, async () => {
+    try {
+      await api("/api/knowledge/delete", { password: reportPw, filename: name, sha: sha || undefined });
+      toast("已刪除");
+      loadKbList();
+    } catch (err) {
+      toast("刪除失敗：" + err.message);
+    }
+  });
+}
 
 function renderDashboard(data) {
   const s = data.summary;
