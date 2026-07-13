@@ -8,10 +8,6 @@
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-  <div class="static-notice">
-    🔎 這是<b>靜態展示版</b>，對話為固定示範腳本、非真實 AI，檔案下載已停用。完整版請見
-    <a href="https://github.com/brandmarketing-coder/PRO_AI_trainer#部署完整版本" target="_blank" rel="noopener">部署說明</a>。
-  </div>
   <!-- 頂部導覽列：左返回、中標題、右動作 -->
   <header class="appbar">
     <div class="appbar-left">
@@ -27,6 +23,9 @@
     <div class="appbar-right">
       <span id="demo-badge" class="demo-badge hidden">示範模式</span>
       <button id="btn-finish" class="appbar-action hidden">結束並評分</button>
+      <button id="btn-report" class="icon-btn" aria-label="報表" title="報表（主管專用）">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M4 20V10M10 20V4M16 20v-7M4 20h16" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+      </button>
     </div>
   </header>
 
@@ -81,6 +80,19 @@
       </div>
     </main>
 
+    <!-- 自訂題目：輸入題目 -->
+    <main id="screen-rp-custom" class="screen scroll hidden">
+      <div class="container">
+        <div class="step-head">
+          <h2>自訂題目</h2>
+          <p class="hint">輸入你想練習的情境，例如某個產品、活動或顧客狀況，AI 店長會依此跟你對練。</p>
+        </div>
+        <label class="field-label" for="custom-topic">練習題目／情境</label>
+        <textarea id="custom-topic" rows="4" placeholder="例：向店長推薦這個月的頭皮養護活動組合／說明 4S 翎羽燙的沙龍導入方案／處理客人反映染後褪色的狀況"></textarea>
+        <button id="btn-custom-next" class="btn-primary btn-block">下一步：選訓練模式</button>
+      </div>
+    </main>
+
     <!-- 演練步驟二：選模式 -->
     <main id="screen-rp-mode" class="screen scroll hidden">
       <div class="container">
@@ -101,8 +113,9 @@
           <h2>準備開始</h2>
         </div>
         <div id="rp-summary" class="summary-card"></div>
-        <label class="field-label" for="trainee-name">你的姓名（會顯示在報告上，可留空）</label>
-        <input id="trainee-name" type="text" placeholder="例：王小明" maxlength="20" autocomplete="name" />
+        <label class="field-label" for="trainee-name">你的姓名（請從名單選擇，主管報表會依此統計）</label>
+        <input id="trainee-name" type="text" list="roster-list" placeholder="輸入或選擇你的姓名" maxlength="20" autocomplete="off" />
+        <datalist id="roster-list"></datalist>
         <button id="btn-start" class="btn-primary btn-block">開始演練</button>
       </div>
     </main>
@@ -248,6 +261,30 @@
         <div class="result-actions">
           <button id="btn-quiz-report" class="btn-primary">下載測驗報告</button>
           <button id="btn-quiz-again" class="btn-outline">再測一次</button>
+        </div>
+      </div>
+    </main>
+
+    <!-- 報表後台（主管專用，需密碼） -->
+    <main id="screen-report" class="screen scroll hidden">
+      <div class="container">
+        <!-- 未解鎖：密碼 -->
+        <div id="report-lock">
+          <div class="step-head">
+            <h2>報表（主管專用）</h2>
+            <p class="hint">請輸入密碼查看業務練習狀況與分數彙整。</p>
+          </div>
+          <label class="field-label" for="report-pw">密碼</label>
+          <input id="report-pw" type="password" inputmode="numeric" placeholder="請輸入密碼" autocomplete="off" />
+          <button id="btn-report-unlock" class="btn-primary btn-block">進入報表</button>
+        </div>
+        <!-- 已解鎖：內容 -->
+        <div id="report-content" class="hidden">
+          <div id="report-summary" class="report-summary"></div>
+          <h3>業務練習狀況</h3>
+          <p class="hint">紅色為尚未練習者。分數為最近一次演練結果。</p>
+          <div id="report-roster"></div>
+          <div id="report-others"></div>
         </div>
       </div>
     </main>

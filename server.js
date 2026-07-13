@@ -99,6 +99,38 @@ let FAQ = [];
   }
 })();
 
+// ── 訓練紀錄歸檔（供報表後台與 n8n）──
+// 每次演練評分完成後寫入 data/records.json（逐筆 append）。
+// ⚠️ Render 免費方案磁碟是暫存的，重新部署／休眠會清空；長期保存請靠 N8N_WEBHOOK_URL 串到 Google Sheet。
+const REPORT_PASSWORD = process.env.REPORT_PASSWORD || "12890464";
+const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL || "";
+const DATA_DIR = path.join(__dirname, "data");
+const RECORDS_FILE = path.join(DATA_DIR, "records.json");
+
+function readRecords() {
+  try {
+    return fs.existsSync(RECORDS_FILE) ? JSON.parse(fs.readFileSync(RECORDS_FILE, "utf8")) : [];
+  } catch { return []; }
+}
+function appendRecord(rec) {
+  const list = readRecords();
+  list.push(rec);
+  try {
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(RECORDS_FILE, JSON.stringify(list, null, 2));
+  } catch (e) {
+    console.warn("[records] 寫入失敗：", e.message);
+  }
+  // 非阻塞地轉送到 n8n（若有設定），失敗不影響主流程
+  if (N8N_WEBHOOK_URL) {
+    fetch(N8N_WEBHOOK_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(rec)
+    }).catch((e) => console.warn("[records] n8n 轉送失敗：", e.message));
+  }
+}
+
 // 把問句正規化（去標點空白、轉小寫）後比對；完全相同或高度重疊即視為命中
 function normalizeQ(s) {
   return String(s || "").toLowerCase().replace(/[\s,，。、！？!?~～．.：:「」『』（）()]/g, "");
@@ -157,9 +189,22 @@ function buildDynamicSystem(featureText, contextQuery, retrieveOpts = {}) {
   return feature;
 }
 
-// 單次生成呼叫（無工具、無多趟往返）。schema 為 null 時回傳純文字。
+// 簡轉繁：保證所有 AI 輸出都是繁體字（gpt-4o 有時會夾帶簡體，光靠提示詞不夠保險）
+const s2t = require("opencc-js").Converter({ from: "cn", to: "tw" });
+function toTraditional(v) {
+  if (typeof v === "string") return s2t(v);
+  if (Array.isArray(v)) return v.map(toTraditional);
+  if (v && typeof v === "object") {
+    const o = {};
+    for (const k of Object.keys(v)) o[k] = toTraditional(v[k]);
+    return o;
+  }
+  return v;
+}
+
+// 單次生成呼叫（無工具、無多趟往返）。schema 為 null 時回傳純文字。輸出一律簡轉繁。
 async function callGen(featureText, messages, schema, { maxTokens = 4000, contextQuery = null, retrieveOpts = {}, schemaName } = {}) {
-  return llm.generate({
+  const out = await llm.generate({
     systemStable: prompts.ROLE_CORE,
     systemDynamic: buildDynamicSystem(featureText, contextQuery, retrieveOpts),
     messages,
@@ -167,6 +212,7 @@ async function callGen(featureText, messages, schema, { maxTokens = 4000, contex
     schemaName,
     maxTokens
   });
+  return toTraditional(out);
 }
 
 // 從對話歷史取出業務講過的話（供檢索用；店長的話不列入檢索關鍵字）
@@ -174,7 +220,26 @@ function salesQuery(history) {
   return history.filter((m) => m.role === "sales").map((m) => m.text).join(" ").slice(-600);
 }
 
-function getTheme(id) {
+function getTheme(id, customTopic) {
+  if (id === "custom") {
+    // 自訂題目：由使用者輸入的題目／情境動態組出一個店長人設
+    const topic = (customTopic || "").trim() || "業務想針對特定產品或活動進行的自訂情境演練";
+    return {
+      id: "custom",
+      icon: "✏️",
+      name: "自訂題目",
+      description: topic,
+      persona:
+        `你扮演一位沙龍店長。本次演練的題目／情境由業務自訂如下：\n「${topic}」\n` +
+        `請依這個題目進入對應的沙龍店長角色（可能是針對某項產品、某個活動、某種顧客狀況的演練）。` +
+        `依難度展現合理的態度與提問，像真實店長一樣回應，幫助業務練習這個特定主題。`,
+      opening_by_difficulty: {
+        beginner: "你好你好，請坐～今天想跟我聊什麼？",
+        intermediate: "你好，今天來是有什麼事嗎？",
+        advanced: "（正在忙）嗯，你說，今天什麼事？我時間不多。"
+      }
+    };
+  }
   return config.themes.find((t) => t.id === id);
 }
 
@@ -407,6 +472,7 @@ const DEMO_QUIZ_GRADE = {
 // ────────────────────────── API ──────────────────────────
 app.get("/api/config", (req, res) => {
   res.json({
+    roster: config.roster || [],
     themes: config.themes,
     difficulties: config.difficulties,
     constructs: config.constructs,
@@ -423,8 +489,8 @@ app.get("/api/config", (req, res) => {
 
 app.post("/api/roleplay/turn", async (req, res) => {
   try {
-    const { themeId, difficulty, history } = req.body;
-    const theme = getTheme(themeId);
+    const { themeId, difficulty, history, customTopic } = req.body;
+    const theme = getTheme(themeId, customTopic);
     if (!theme || !config.difficulties[difficulty])
       return res.status(400).json({ error: "主題或難度不存在" });
 
@@ -452,8 +518,8 @@ app.post("/api/roleplay/turn", async (req, res) => {
 
 app.post("/api/roleplay/evaluate", async (req, res) => {
   try {
-    const { themeId, difficulty, history } = req.body;
-    const theme = getTheme(themeId);
+    const { themeId, difficulty, history, customTopic } = req.body;
+    const theme = getTheme(themeId, customTopic);
     if (!theme || !config.difficulties[difficulty])
       return res.status(400).json({ error: "主題或難度不存在" });
 
@@ -503,6 +569,84 @@ app.post("/api/qa", async (req, res) => {
     console.error("qa error:", err);
     res.status(500).json({ error: err.message || "伺服器錯誤" });
   }
+});
+
+// ── 訓練紀錄歸檔 ──
+app.post("/api/records", (req, res) => {
+  try {
+    const { name, themeName, modeLabel, evaluation, transcript } = req.body || {};
+    if (!evaluation) return res.status(400).json({ error: "缺少評估資料" });
+    const rec = {
+      name: (name || "").trim() || "未填寫",
+      date: new Date().toISOString(),
+      theme: themeName || "",
+      mode: modeLabel || "",
+      total_score: evaluation.total_score,
+      level: evaluation.level,
+      level_note: evaluation.level_note,
+      // 待加強面向＝評為 △ 的構面
+      weak_areas: (evaluation.constructs || []).filter((c) => c.mark === "△").map((c) => c.name),
+      construct_scores: (evaluation.constructs || []).map((c) => ({ name: c.name, mark: c.mark, score: c.score })),
+      transcript: transcript || []   // 逐字稿（供 n8n / AI Agent 分析）
+    };
+    appendRecord(rec);
+    res.json({ ok: true });
+  } catch (err) {
+    console.error("records error:", err);
+    res.status(500).json({ error: err.message || "伺服器錯誤" });
+  }
+});
+
+// ── 報表後台（需密碼）──
+app.post("/api/report/dashboard", (req, res) => {
+  const { password } = req.body || {};
+  if (password !== REPORT_PASSWORD) return res.status(401).json({ error: "密碼錯誤" });
+
+  const roster = config.roster || [];
+  const records = readRecords();
+  const byName = new Map();
+  records.forEach((r) => {
+    if (!byName.has(r.name)) byName.set(r.name, []);
+    byName.get(r.name).push(r);
+  });
+
+  // 每位業務彙整：練習次數、最近分數、最近層級、待加強面向（取最近一次）
+  const rosterStats = roster.map((name) => {
+    const recs = (byName.get(name) || []).slice().sort((a, b) => a.date.localeCompare(b.date));
+    const latest = recs[recs.length - 1] || null;
+    const avg = recs.length ? Math.round(recs.reduce((s, r) => s + (r.total_score || 0), 0) / recs.length) : null;
+    return {
+      name,
+      count: recs.length,
+      practiced: recs.length > 0,
+      avg_score: avg,
+      last_score: latest ? latest.total_score : null,
+      last_level: latest ? latest.level : null,
+      last_weak: latest ? latest.weak_areas : [],
+      last_date: latest ? latest.date : null
+    };
+  });
+
+  // 名單外（自訂姓名）也列出來，方便主管看到
+  const others = [...byName.keys()].filter((n) => !roster.includes(n)).map((name) => {
+    const recs = byName.get(name);
+    const latest = recs[recs.length - 1];
+    return { name, count: recs.length, practiced: true, last_score: latest.total_score, last_level: latest.level, last_weak: latest.weak_areas, last_date: latest.date };
+  });
+
+  const practicedCount = rosterStats.filter((r) => r.practiced).length;
+  res.json({
+    summary: {
+      roster_total: roster.length,
+      practiced: practicedCount,
+      not_practiced: roster.length - practicedCount,
+      total_records: records.length
+    },
+    roster: rosterStats,
+    others,
+    constructs: config.constructs.map((c) => c.name),
+    levels: config.levels
+  });
 });
 
 app.post("/api/quiz/next", async (req, res) => {

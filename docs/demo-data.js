@@ -6,6 +6,11 @@
 
   const CONFIG = {
     demo: true,
+    roster: [
+      "任俊傑", "蕭詩穎", "黃琡媖", "楊皓閔", "曹智傑", "高永馨", "游筱惠", "林采築",
+      "李仁智", "張沛恩", "吳怡萱", "吳承祐", "李麗真", "楊詩佳", "陳富琮", "張雅雯",
+      "蘇家蓁", "廖雅慧", "彭于菲", "林淑雅", "李元宏", "黃藍瑩", "王建明", "林巧燕"
+    ],
     themes: [
       {
         id: "cold-call", icon: "🚪", name: "陌生開發",
@@ -150,6 +155,29 @@
     correct: false
   };
 
+  // 報表儀表板：靜態展示版固定範例（密碼 12890464）。名單外練習者一併示範。
+  const DASHBOARD_DEMO = (() => {
+    const roster = CONFIG.roster.map((name) => ({
+      name, count: 0, practiced: false,
+      last_score: null, last_level: null, last_weak: [], last_date: null
+    }));
+    roster[0] = { name: "任俊傑", count: 3, practiced: true, last_score: 82, last_level: "L2", last_weak: ["提問能力", "異議處理"], last_date: "2026-07-10" };
+    roster[3] = { name: "楊皓閔", count: 1, practiced: true, last_score: 74, last_level: "L1", last_weak: ["需求探詢", "臨門一腳"], last_date: "2026-07-08" };
+    const practiced = roster.filter((r) => r.practiced).length;
+    return {
+      summary: {
+        roster_total: roster.length,
+        practiced,
+        not_practiced: roster.length - practiced,
+        total_records: 4
+      },
+      roster,
+      others: [
+        { name: "王小明（訪客）", count: 1, practiced: true, last_score: 68, last_level: "L1", last_weak: ["表達結構", "價值傳遞", "臨門一腳"], last_date: "2026-07-05" }
+      ]
+    };
+  })();
+
   window.DEMO_DATA = {
     async handle(path, body) {
       switch (path) {
@@ -180,6 +208,18 @@
         case "/api/quiz/grade":
           await sleep(800);
           return QUIZ_GRADE;
+        case "/api/records":
+          await sleep(200);
+          return { ok: true, demo: true };
+        case "/api/report/dashboard": {
+          await sleep(300);
+          if (!body || body.password !== "12890464") {
+            const err = new Error("密碼錯誤");
+            err.status = 401;
+            throw err;
+          }
+          return DASHBOARD_DEMO;
+        }
         default:
           throw new Error("靜態展示版不支援此功能，請使用完整部署版本。");
       }

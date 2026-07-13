@@ -5,6 +5,7 @@ let CONFIG = null;
 const state = {
   // 情境演練
   themeId: null,
+  customTopic: "",
   difficulty: null,
   name: "",
   history: [],    // [{role:'sales'|'manager', text}]
@@ -80,6 +81,7 @@ function confirmModal({ title, body, okText = "確定", cancelText = "取消" },
 const SCREEN_META = {
   "home":       { brand: true },
   "rp-theme":   { title: "情境演練", back: "home" },
+  "rp-custom":  { title: "自訂題目", back: "rp-theme" },
   "rp-mode":    { title: "情境演練", back: "rp-theme" },
   "rp-name":    { title: "情境演練", back: "rp-mode" },
   "chat":       { title: "", back: "home", action: true },
@@ -88,7 +90,8 @@ const SCREEN_META = {
   "qa":         { title: "知識問答", back: "home" },
   "quiz-setup":  { title: "隨機測驗", back: "home" },
   "quiz-play":   { title: "隨機測驗", back: "quiz-setup" },
-  "quiz-result": { title: "測驗成績", back: "home" }
+  "quiz-result": { title: "測驗成績", back: "home" },
+  "report":      { title: "報表", back: "home" }
 };
 const SCREEN_IDS = Object.keys(SCREEN_META);
 let currentScreen = "home";
@@ -101,6 +104,8 @@ function go(name) {
   $("appbar-title").classList.toggle("hidden", !!meta.brand);
   $("nav-back").classList.toggle("hidden", !meta.back);
   $("btn-finish").classList.toggle("hidden", !meta.action);
+  // 報表 icon 只在首頁顯示（避免演練/報告畫面誤觸）
+  $("btn-report").classList.toggle("hidden", name !== "home");
   if (!meta.brand) $("appbar-title").textContent = meta.titleOverride || meta.title;
 }
 
@@ -240,9 +245,18 @@ function renderThemes() {
       `<span class="o-icon">${t.icon}</span>` +
       `<span class="o-body"><span class="o-name">${esc(t.name)}</span>` +
       `<span class="o-desc">${esc(t.description)}</span></span>`;
-    btn.onclick = () => { state.themeId = t.id; go("rp-mode"); };
+    btn.onclick = () => { state.themeId = t.id; state.customTopic = ""; go("rp-mode"); };
     wrap.appendChild(btn);
   });
+  // 自訂題目：讓業務針對單一品項或活動自訂情境
+  const custom = document.createElement("button");
+  custom.className = "option-card";
+  custom.innerHTML =
+    `<span class="o-icon">✏️</span>` +
+    `<span class="o-body"><span class="o-name">自訂題目</span>` +
+    `<span class="o-desc">自己出題：針對某個產品、活動或顧客狀況，設定想練的情境。</span></span>`;
+  custom.onclick = () => { state.themeId = "custom"; $("custom-topic").value = state.customTopic || ""; go("rp-custom"); };
+  wrap.appendChild(custom);
 }
 
 function renderModes() {
@@ -264,10 +278,27 @@ function renderSummary() {
   const diff = CONFIG.difficulties[state.difficulty];
   $("rp-summary").innerHTML =
     `<div class="summary-row"><span class="k">演練主題</span><span class="v">${theme.icon} ${esc(theme.name)}</span></div>` +
+    (state.themeId === "custom"
+      ? `<div class="summary-row"><span class="k">自訂題目</span><span class="v">${esc(state.customTopic)}</span></div>`
+      : "") +
     `<div class="summary-row"><span class="k">訓練模式</span><span class="v">${esc(diff.label)}（${esc(diff.sub)}）</span></div>`;
 }
 
-function getTheme() { return CONFIG.themes.find((t) => t.id === state.themeId); }
+// 取得目前主題；自訂題目回傳合成物件（名稱固定、描述＝使用者輸入的題目）
+function getTheme() {
+  if (state.themeId === "custom") {
+    return { id: "custom", icon: "✏️", name: "自訂題目", description: state.customTopic || "自訂情境" };
+  }
+  return CONFIG.themes.find((t) => t.id === state.themeId);
+}
+
+// 自訂題目：輸入題目後進入選模式
+$("btn-custom-next").onclick = () => {
+  const topic = $("custom-topic").value.trim();
+  if (!topic) { toast("請先輸入你想練習的題目或情境"); return; }
+  state.customTopic = topic;
+  go("rp-mode");
+};
 
 $("btn-start").onclick = () => {
   state.name = $("trainee-name").value.trim();
@@ -279,10 +310,19 @@ $("btn-start").onclick = () => {
   const theme = getTheme();
   const diff = CONFIG.difficulties[state.difficulty];
   SCREEN_META.chat.titleOverride = `${theme.name}（${diff.label}）`;
-  $("chat-context").textContent = theme.description;
+  $("chat-context").textContent = state.themeId === "custom" ? `自訂題目：${theme.description}` : theme.description;
   $("chat-window").innerHTML = "";
 
-  addBubble("manager", theme.opening_by_difficulty[state.difficulty]);
+  // 自訂題目沒有預設開場白，用一句通用開場（後續由 AI 依題目與難度接續）
+  const CUSTOM_OPENING = {
+    beginner: "你好你好，請坐～今天想跟我聊什麼？",
+    intermediate: "你好，今天來是有什麼事嗎？",
+    advanced: "（正在忙）嗯，你說，今天什麼事？我時間不多。"
+  };
+  const opening = state.themeId === "custom"
+    ? CUSTOM_OPENING[state.difficulty]
+    : theme.opening_by_difficulty[state.difficulty];
+  addBubble("manager", opening);
   go("chat");
   $("chat-input").focus();
 };
@@ -335,7 +375,8 @@ async function sendMessage() {
     const data = await api("/api/roleplay/turn", {
       themeId: state.themeId,
       difficulty: state.difficulty,
-      history: state.history
+      history: state.history,
+      customTopic: state.customTopic
     });
     hideTyping();
     state.feedbacks.push({ coaching: data.coaching, correction: data.correction });
@@ -413,13 +454,14 @@ async function runEvaluation() {
   const minDisplay = new Promise((r) => setTimeout(r, 3200));
   try {
     const [data] = await Promise.all([
-      api("/api/roleplay/evaluate", { themeId: state.themeId, difficulty: state.difficulty, history: state.history }),
+      api("/api/roleplay/evaluate", { themeId: state.themeId, difficulty: state.difficulty, history: state.history, customTopic: state.customTopic }),
       minDisplay
     ]);
     clearInterval(progressTimer);
     items.forEach((li) => { li.classList.remove("active"); li.classList.add("done"); });
     fill.style.width = "100%";
     state.evaluation = data;
+    submitRecord(data);   // 歸檔：寫入後台紀錄（供報表與 n8n）
     setTimeout(() => { renderResult(); go("result"); }, 600);
   } catch (err) {
     clearInterval(progressTimer);
@@ -494,6 +536,20 @@ function reportPayload() {
     rounds,
     evaluation: state.evaluation
   };
+}
+
+// 歸檔：評分完成後把紀錄（含逐字稿）送到後端，供報表後台與 n8n。失敗不影響使用者流程。
+function submitRecord(evaluation) {
+  try {
+    const p = reportPayload();
+    api("/api/records", {
+      name: state.name,
+      themeName: p.themeName,
+      modeLabel: p.modeLabel,
+      evaluation,
+      transcript: p.rounds
+    }).catch(() => {});
+  } catch { /* 靜默 */ }
 }
 
 async function downloadReport(type, btn) {
@@ -810,6 +866,70 @@ $("btn-quiz-report").onclick = async (e) => {
   }
 };
 
+// ═════════════════ 報表後台（主管專用） ═════════════════
+$("btn-report").onclick = () => {
+  // 每次進入都回到鎖定狀態，需重新輸入密碼
+  $("report-lock").classList.remove("hidden");
+  $("report-content").classList.add("hidden");
+  $("report-pw").value = "";
+  go("report");
+  $("report-pw").focus();
+};
+
+async function unlockReport() {
+  const pw = $("report-pw").value.trim();
+  if (!pw) { toast("請輸入密碼"); return; }
+  const btn = $("btn-report-unlock");
+  btn.disabled = true;
+  btn.textContent = "驗證中…";
+  try {
+    const data = await api("/api/report/dashboard", { password: pw });
+    renderDashboard(data);
+    $("report-lock").classList.add("hidden");
+    $("report-content").classList.remove("hidden");
+  } catch (err) {
+    toast(err.message === "密碼錯誤" ? "密碼錯誤，請再試一次" : ("讀取失敗：" + err.message));
+  } finally {
+    btn.disabled = false;
+    btn.textContent = "進入報表";
+  }
+}
+$("btn-report-unlock").onclick = unlockReport;
+$("report-pw").addEventListener("keydown", (e) => { if (e.key === "Enter") unlockReport(); });
+
+function renderDashboard(data) {
+  const s = data.summary;
+  $("report-summary").innerHTML =
+    `<div class="rs-card"><div class="rs-num">${s.practiced}/${s.roster_total}</div><div class="rs-label">已練習人數</div></div>` +
+    `<div class="rs-card rs-warn"><div class="rs-num">${s.not_practiced}</div><div class="rs-label">尚未練習</div></div>` +
+    `<div class="rs-card"><div class="rs-num">${s.total_records}</div><div class="rs-label">總演練次數</div></div>`;
+
+  const rowsHtml = (list) => list.map((r) => {
+    if (!r.practiced) {
+      return `<tr class="row-miss"><td>${esc(r.name)}</td><td colspan="4">尚未練習</td></tr>`;
+    }
+    const weak = (r.last_weak && r.last_weak.length) ? r.last_weak.join("、") : "—";
+    return `<tr>` +
+      `<td>${esc(r.name)}</td>` +
+      `<td>${r.count} 次</td>` +
+      `<td>${r.last_score != null ? r.last_score + " 分" : "—"}</td>` +
+      `<td><span class="lv-badge">${esc(r.last_level || "—")}</span></td>` +
+      `<td>${esc(weak)}</td>` +
+      `</tr>`;
+  }).join("");
+
+  const header = `<thead><tr><th>業務</th><th>次數</th><th>最近分數</th><th>層級</th><th>待加強面向</th></tr></thead>`;
+  $("report-roster").innerHTML =
+    `<div class="table-scroll"><table class="report-table">${header}<tbody>${rowsHtml(data.roster)}</tbody></table></div>`;
+
+  if (data.others && data.others.length) {
+    $("report-others").innerHTML =
+      `<h3>名單外練習者</h3><div class="table-scroll"><table class="report-table">${header}<tbody>${rowsHtml(data.others)}</tbody></table></div>`;
+  } else {
+    $("report-others").innerHTML = "";
+  }
+}
+
 // ═════════════════ 初始化 ═════════════════
 async function init() {
   try {
@@ -819,6 +939,8 @@ async function init() {
     return;
   }
   if (CONFIG.demo) $("demo-badge").classList.remove("hidden");
+  // 業務姓名名單（報表依此統計）
+  $("roster-list").innerHTML = (CONFIG.roster || []).map((n) => `<option value="${esc(n)}"></option>`).join("");
   renderThemes();
   renderModes();
   renderQaStarter();
