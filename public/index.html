@@ -287,9 +287,8 @@
 
           <!-- 分頁一：分數彙整 -->
           <section id="pane-scores">
-            <div id="report-summary" class="report-summary"></div>
             <h3>業務練習狀況</h3>
-            <p class="hint">紅色為尚未練習者。分數為最近一次演練結果。</p>
+            <p class="hint">分數與時間為最近一次演練結果。</p>
             <div id="report-roster"></div>
             <div id="report-others"></div>
           </section>
@@ -327,6 +326,19 @@
         <button id="modal-cancel" class="btn-outline"></button>
         <button id="modal-ok" class="btn-primary"></button>
       </div>
+    </div>
+  </div>
+
+  <!-- 知識檔檢視視窗 -->
+  <div id="viewer" class="modal-backdrop hidden">
+    <div class="viewer">
+      <div class="viewer-head">
+        <h3 id="viewer-title"></h3>
+        <button id="viewer-close" class="viewer-x" aria-label="關閉">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M6 6l12 12M18 6L6 18" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg>
+        </button>
+      </div>
+      <div id="viewer-body" class="viewer-body"></div>
     </div>
   </div>
 

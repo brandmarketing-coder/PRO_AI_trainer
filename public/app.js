@@ -345,8 +345,8 @@ function addCoachBox(coaching) {
   detail.className = "coach-detail hidden";
   detail.innerHTML =
     `<div class="c-good">📌 評價：${esc(coaching.comment)}</div>` +
-    `<div class="c-improve">▲ 建議：${esc(coaching.suggestion)}</div>` +
-    `<span class="c-example">💬 可以這樣說：${esc(coaching.better_example)}</span>`;
+    `<div class="c-improve">▲ 調整建議：${esc(coaching.suggestion)}</div>` +
+    `<span class="c-example">💬 這句可以這樣講：${esc(coaching.better_example)}</span>`;
   toggle.onclick = () => {
     detail.classList.toggle("hidden");
     toggle.textContent = detail.classList.contains("hidden") ? "💡 看看怎麼說可以更好" : "🔼 收起教練回饋";
@@ -985,12 +985,63 @@ async function uploadKb() {
 }
 $("btn-kb-upload").onclick = uploadKb;
 
+// 把知識檔的 Markdown 轉成好讀的 HTML（僅支援檢視需要的子集：標題／粗體／條列／表格／分隔線）
+function kbMdToHtml(md) {
+  const lines = String(md).replace(/\r\n/g, "\n").split("\n");
+  const out = [];
+  let list = null, table = null;
+  const inline = (s) => esc(s).replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>").replace(/`([^`]+)`/g, "<code>$1</code>");
+  const flushList = () => { if (list) { out.push(`<ul>${list.join("")}</ul>`); list = null; } };
+  const flushTable = () => {
+    if (!table) return;
+    const [head, ...body] = table;
+    out.push(
+      `<div class="kbv-tablewrap"><table><thead><tr>${head.map((c) => `<th>${inline(c)}</th>`).join("")}</tr></thead>` +
+      `<tbody>${body.map((r) => `<tr>${r.map((c) => `<td>${inline(c)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`
+    );
+    table = null;
+  };
+  for (const raw of lines) {
+    const line = raw.trimEnd();
+    if (/^\|.*\|$/.test(line.trim())) {
+      flushList();
+      const cells = line.trim().slice(1, -1).split("|").map((c) => c.trim());
+      if (cells.every((c) => /^:?-{2,}:?$/.test(c))) continue; // 分隔列
+      (table = table || []).push(cells);
+      continue;
+    }
+    flushTable();
+    const h = line.match(/^(#{1,4})\s+(.*)/);
+    if (h) { flushList(); out.push(`<h${h[1].length + 1}>${inline(h[2])}</h${h[1].length + 1}>`); continue; }
+    if (/^(-{3,}|\*{3,})$/.test(line.trim())) { flushList(); out.push("<hr>"); continue; }
+    const li = line.match(/^\s*(?:[-*]\s+|・\s*)(.*)/);
+    if (li) { (list = list || []).push(`<li>${inline(li[1])}</li>`); continue; }
+    flushList();
+    if (line.trim()) out.push(`<p>${inline(line)}</p>`);
+  }
+  flushList(); flushTable();
+  return out.join("");
+}
+
+function openViewer(title, html) {
+  $("viewer-title").textContent = title;
+  $("viewer-body").innerHTML = html;
+  $("viewer").classList.remove("hidden");
+  $("viewer-body").scrollTop = 0;
+}
+$("viewer-close").onclick = () => $("viewer").classList.add("hidden");
+$("viewer").addEventListener("click", (e) => { if (e.target === $("viewer")) $("viewer").classList.add("hidden"); });
+
 async function viewKb(name) {
+  openViewer(name, `<p class="hint">載入中…</p>`);
   try {
     const data = await api("/api/knowledge/get", { password: reportPw, filename: name });
-    const preview = data.content.slice(0, 6000) + (data.content.length > 6000 ? "\n…（僅顯示前段）" : "");
-    confirmModal({ title: name, body: preview, okText: "關閉", cancelText: "關閉" }, () => {});
+    const truncated = data.content.length > 60000;
+    const html = kbMdToHtml(truncated ? data.content.slice(0, 60000) : data.content) +
+      (truncated ? `<p class="hint">…（檔案較大，僅顯示前段）</p>` : "");
+    openViewer(name, html);
   } catch (err) {
+    $("viewer").classList.add("hidden");
     toast("讀取失敗：" + err.message);
   }
 }
@@ -1011,28 +1062,32 @@ function deleteKb(name, sha) {
   });
 }
 
-function renderDashboard(data) {
-  const s = data.summary;
-  $("report-summary").innerHTML =
-    `<div class="rs-card"><div class="rs-num">${s.practiced}/${s.roster_total}</div><div class="rs-label">已練習人數</div></div>` +
-    `<div class="rs-card rs-warn"><div class="rs-num">${s.not_practiced}</div><div class="rs-label">尚未練習</div></div>` +
-    `<div class="rs-card"><div class="rs-num">${s.total_records}</div><div class="rs-label">總演練次數</div></div>`;
+// ISO 時間 → 「2026/07/16 14:30」（依瀏覽器本地時區）
+function fmtDateTime(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (isNaN(d)) return "—";
+  const p = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}/${p(d.getMonth() + 1)}/${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
 
+function renderDashboard(data) {
   const rowsHtml = (list) => list.map((r) => {
     if (!r.practiced) {
-      return `<tr class="row-miss"><td>${esc(r.name)}</td><td colspan="4">尚未練習</td></tr>`;
+      return `<tr class="row-miss"><td>${esc(r.name)}</td><td colspan="5">尚未練習</td></tr>`;
     }
     const weak = (r.last_weak && r.last_weak.length) ? r.last_weak.join("、") : "—";
     return `<tr>` +
       `<td>${esc(r.name)}</td>` +
       `<td>${r.count} 次</td>` +
+      `<td>${fmtDateTime(r.last_date)}</td>` +
       `<td>${r.last_score != null ? r.last_score + " 分" : "—"}</td>` +
       `<td><span class="lv-badge">${esc(r.last_level || "—")}</span></td>` +
       `<td>${esc(weak)}</td>` +
       `</tr>`;
   }).join("");
 
-  const header = `<thead><tr><th>業務</th><th>次數</th><th>最近分數</th><th>層級</th><th>待加強面向</th></tr></thead>`;
+  const header = `<thead><tr><th>業務</th><th>次數</th><th>最近練習時間</th><th>最近分數</th><th>層級</th><th>待加強面向</th></tr></thead>`;
   $("report-roster").innerHTML =
     `<div class="table-scroll"><table class="report-table">${header}<tbody>${rowsHtml(data.roster)}</tbody></table></div>`;
 

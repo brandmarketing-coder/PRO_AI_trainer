@@ -1,0 +1,70 @@
+{
+  "name": "O'right 演練紀錄 → Apps Script → Google Sheet",
+  "nodes": [
+    {
+      "parameters": {
+        "content": "## 設定步驟\n\n**① Google 試算表端**\n照 repo 裡 `n8n/google-apps-script.gs` 檔頭的說明，把 Apps Script 部署成網頁應用程式，複製 Web App URL（…/exec 結尾）。\n\n**② n8n 端**\n把 URL 貼到右邊「寫入 Google Sheet（Apps Script）」節點的 URL 欄位，然後啟用（Activate）本 workflow。\n\n**③ App 端（Render）**\n環境變數設定：\n`N8N_WEBHOOK_URL` = 本 workflow Webhook 節點的 **Production URL**\n（點開 Webhook 節點可複製，長得像 https://你的n8n網址/webhook/oright-training-record）\n\n之後每完成一次演練評分，App 會自動 POST 一筆紀錄 → n8n 整理欄位 → Apps Script 寫進試算表。\n\n※ 不需要在 n8n 設定任何 Google 憑證，授權都在 Apps Script 那端完成。",
+        "height": 460,
+        "width": 380
+      },
+      "id": "note-setup",
+      "name": "Sticky Note",
+      "type": "n8n-nodes-base.stickyNote",
+      "typeVersion": 1,
+      "position": [-140, 140]
+    },
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "oright-training-record",
+        "responseMode": "onReceived",
+        "options": {}
+      },
+      "id": "webhook-record",
+      "name": "接收演練紀錄 Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [300, 300],
+      "webhookId": "oright-training-record"
+    },
+    {
+      "parameters": {
+        "jsCode": "// 把 App 傳來的演練紀錄整理成 Apps Script 期待的欄位（鍵名需與 google-apps-script.gs 的 HEADERS 一致）\nconst b = $input.first().json.body || $input.first().json;\nconst join = (a) => Array.isArray(a) ? a.join('、') : (a || '');\n\n// ISO 時間 → 台灣時區好讀格式（2026/07/16 15:00）\nlet when = b.date || '';\nif (when) {\n  const d = new Date(when);\n  if (!isNaN(d)) {\n    when = d.toLocaleString('zh-TW', {\n      timeZone: 'Asia/Taipei',\n      year: 'numeric', month: '2-digit', day: '2-digit',\n      hour: '2-digit', minute: '2-digit', hour12: false\n    }).replace(/-/g, '/');\n  }\n}\n\nconst transcript = Array.isArray(b.transcript)\n  ? b.transcript.map(t => `${t.role === 'sales' ? '業務' : '店長'}：${t.text}`).join('\\n')\n  : '';\n\nconst cs = Array.isArray(b.construct_scores)\n  ? b.construct_scores.map(c => `${c.name}:${c.mark}${c.score != null ? c.score : ''}`).join('、')\n  : '';\n\nreturn [{ json: {\n  '時間': when,\n  '業務': b.name || '',\n  '主題': b.theme || '',\n  '模式': b.mode || '',\n  '總分': (b.total_score != null ? b.total_score : ''),\n  '層級': b.level || '',\n  '層級說明': b.level_note || '',\n  '待加強面向': join(b.weak_areas),\n  '各面向分數': cs,\n  '逐字稿': transcript\n} }];"
+      },
+      "id": "format-row",
+      "name": "整理成試算表欄位",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [540, 300]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "＝＝＝貼上你的 Apps Script 網頁應用程式 URL（https://script.google.com/macros/s/…/exec）＝＝＝",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($json) }}",
+        "options": {
+          "redirect": {
+            "redirect": {}
+          }
+        }
+      },
+      "id": "post-appsscript",
+      "name": "寫入 Google Sheet（Apps Script）",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [780, 300]
+    }
+  ],
+  "connections": {
+    "接收演練紀錄 Webhook": {
+      "main": [[{ "node": "整理成試算表欄位", "type": "main", "index": 0 }]]
+    },
+    "整理成試算表欄位": {
+      "main": [[{ "node": "寫入 Google Sheet（Apps Script）", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": { "executionOrder": "v1" },
+  "pinData": {}
+}
