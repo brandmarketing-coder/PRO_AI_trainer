@@ -112,6 +112,31 @@ function readRecords() {
     return fs.existsSync(RECORDS_FILE) ? JSON.parse(fs.readFileSync(RECORDS_FILE, "utf8")) : [];
   } catch { return []; }
 }
+// 轉送到 n8n。成功與失敗都寫 log（含 HTTP 狀態碼），方便在 Render Logs 直接看出問題；
+// 回傳結果物件供 /api/records 的 debug 模式回報。
+async function forwardToN8n(rec) {
+  if (!N8N_WEBHOOK_URL) {
+    console.log("[records] 未設定 N8N_WEBHOOK_URL，略過轉送");
+    return { sent: false, reason: "N8N_WEBHOOK_URL 未設定" };
+  }
+  try {
+    const r = await fetch(N8N_WEBHOOK_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(rec)
+    });
+    if (r.ok) {
+      console.log(`[records] 已轉送 n8n（HTTP ${r.status}）：${rec.name}`);
+      return { sent: true, status: r.status };
+    }
+    console.warn(`[records] n8n 回應異常 HTTP ${r.status}（檢查是否為正式 /webhook/ 網址、workflow 是否已啟用）`);
+    return { sent: false, status: r.status, reason: `n8n 回應 HTTP ${r.status}` };
+  } catch (e) {
+    console.warn("[records] n8n 轉送失敗：", e.message);
+    return { sent: false, reason: e.message };
+  }
+}
+
 function appendRecord(rec) {
   const list = readRecords();
   list.push(rec);
@@ -121,14 +146,8 @@ function appendRecord(rec) {
   } catch (e) {
     console.warn("[records] 寫入失敗：", e.message);
   }
-  // 非阻塞地轉送到 n8n（若有設定），失敗不影響主流程
-  if (N8N_WEBHOOK_URL) {
-    fetch(N8N_WEBHOOK_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(rec)
-    }).catch((e) => console.warn("[records] n8n 轉送失敗：", e.message));
-  }
+  // 非阻塞地轉送到 n8n，失敗不影響主流程
+  return forwardToN8n(rec);
 }
 
 // 把問句正規化（去標點空白、轉小寫）後比對；完全相同或高度重疊即視為命中
@@ -483,7 +502,9 @@ app.get("/api/config", (req, res) => {
     knowledgeFiles: KNOWLEDGE.files,
     knowledgeDir: KNOWLEDGE_DIR,
     demo: !llm,
-    model: MODEL
+    model: MODEL,
+    n8n_configured: !!N8N_WEBHOOK_URL,   // 是否已設定 N8N_WEBHOOK_URL（不外洩網址本身）
+    build: "2026-07-17-n8n-debug"        // 部署版本標記，用於確認新版已上線
   });
 });
 
@@ -572,9 +593,9 @@ app.post("/api/qa", async (req, res) => {
 });
 
 // ── 訓練紀錄歸檔 ──
-app.post("/api/records", (req, res) => {
+app.post("/api/records", async (req, res) => {
   try {
-    const { name, themeName, modeLabel, evaluation, transcript } = req.body || {};
+    const { name, themeName, modeLabel, evaluation, transcript, debug_n8n } = req.body || {};
     if (!evaluation) return res.status(400).json({ error: "缺少評估資料" });
     const rec = {
       name: (name || "").trim() || "未填寫",
@@ -589,7 +610,9 @@ app.post("/api/records", (req, res) => {
       construct_scores: (evaluation.constructs || []).map((c) => ({ name: c.name, mark: c.mark, score: c.score })),
       transcript: transcript || []   // 逐字稿（供 n8n / AI Agent 分析）
     };
-    appendRecord(rec);
+    const forward = appendRecord(rec);
+    // debug 模式：等轉送完成並回報結果（排查 N8N_WEBHOOK_URL 用）；一般使用不等待
+    if (debug_n8n) return res.json({ ok: true, n8n: await forward });
     res.json({ ok: true });
   } catch (err) {
     console.error("records error:", err);
