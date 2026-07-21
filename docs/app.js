@@ -418,7 +418,7 @@ $("btn-finish").onclick = () => {
     return;
   }
   confirmModal(
-    { title: "結束演練並產出報告？", body: "教育長會依這段對話進行五大構面評估，產出正式訓練報告。", okText: "產出報告", cancelText: "繼續練習" },
+    { title: "結束演練並產出報告？", body: "Jenny 老師會依這段對話進行五大構面評估，產出正式訓練報告。", okText: "產出報告", cancelText: "繼續練習" },
     runEvaluation
   );
 };
