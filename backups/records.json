@@ -1,0 +1,38 @@
+{
+  "savedAt": "2026-07-21T09:05:17.020Z",
+  "records": [
+    {
+      "name": "備份還原測試",
+      "date": "2026-07-21T09:05:17.020Z",
+      "theme": "陌生開發",
+      "mode": "新人",
+      "total_score": 77,
+      "level": "L2",
+      "level_note": "備份鏈驗證用",
+      "weak_areas": [],
+      "construct_scores": [
+        {
+          "name": "同理客戶",
+          "mark": "◎",
+          "score": 16
+        }
+      ],
+      "transcript": [
+        {
+          "no": 1,
+          "sales": "測試",
+          "manager": "好"
+        }
+      ]
+    }
+  ],
+  "audit": [
+    {
+      "time": "2026-07-21T09:04:33.984Z",
+      "role": "admin",
+      "action": "登入後台",
+      "detail": "管理員",
+      "ip": "59.124.196.162"
+    }
+  ]
+}
