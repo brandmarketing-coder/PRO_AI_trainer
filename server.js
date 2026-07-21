@@ -916,16 +916,21 @@ async function ghSaveFile(repoPath, content, message) {
 // ① 每日自動＋手動備份到 GitHub；② 任何會觸發重新部署的後台操作前先備份；③ 開機時自動還原。
 const BACKUP_PATH = "backups/records.json";
 let lastBackupAt = 0;
+let backupInFlight = null;   // 同時觸發的備份（例如每日自動＋手動撞在一起）合併成一次，避免 GitHub 寫入衝突
 
 async function runBackup(trigger, req) {
   if (!useGitHub()) return { ok: false, error: "未設定 GITHUB_TOKEN，無法備份到 GitHub（仍可用「下載完整備份」手動保存）" };
-  const records = readRecords();
-  const payload = { savedAt: new Date().toISOString(), records, audit: readAudit() };
-  const r = await ghSaveFile(BACKUP_PATH, JSON.stringify(payload, null, 2), `資料備份：${records.length} 筆演練紀錄（${trigger}）`);
-  lastBackupAt = Date.now();
-  audit("資料備份", `${trigger}，${records.length} 筆`, "admin", req);
-  console.log(`[backup] 已備份 ${records.length} 筆演練紀錄到 GitHub（${trigger}）`);
-  return { ok: true, count: records.length, commit: r.commit && r.commit.sha };
+  if (backupInFlight) return backupInFlight;
+  backupInFlight = (async () => {
+    const records = readRecords();
+    const payload = { savedAt: new Date().toISOString(), records, audit: readAudit() };
+    const r = await ghSaveFile(BACKUP_PATH, JSON.stringify(payload, null, 2), `資料備份：${records.length} 筆演練紀錄（${trigger}）`);
+    lastBackupAt = Date.now();
+    audit("資料備份", `${trigger}，${records.length} 筆`, "admin", req);
+    console.log(`[backup] 已備份 ${records.length} 筆演練紀錄到 GitHub（${trigger}）`);
+    return { ok: true, count: records.length, commit: r.commit && r.commit.sha };
+  })().finally(() => { backupInFlight = null; });
+  return backupInFlight;
 }
 
 // 會觸發 Render 重新部署的操作（知識庫、名單、開關存回 GitHub）前先備份，避免部署間隔遺失紀錄
