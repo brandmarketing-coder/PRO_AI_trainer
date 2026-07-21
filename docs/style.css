@@ -717,6 +717,9 @@ input:focus, textarea:focus {
 
   .result-actions { grid-template-columns: repeat(4, 1fr); }
   .feature-card:hover, .option-card:hover { transform: translateY(-2px); }
+
+  /* 報表後台：桌機放寬，表格欄位多、不該擠在 560px 窄欄裡 */
+  #screen-report .container { max-width: 960px; }
 }
 
 /* 更寬的螢幕再放大一點面板 */
