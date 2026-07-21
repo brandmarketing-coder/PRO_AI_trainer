@@ -35,6 +35,7 @@
     <!-- 首頁 -->
     <main id="screen-home" class="screen scroll">
       <div class="container">
+        <div id="announcement" class="announce hidden"></div>
         <div class="hero">
           <p class="hero-eyebrow">O'right｜PRO 業務教育教練</p>
           <h1>嗨，我是 Jenny 老師</h1>
@@ -283,7 +284,9 @@
         <div id="report-content" class="hidden">
           <div class="report-tabs">
             <button id="tab-scores" class="rtab active">分數彙整</button>
-            <button id="tab-kb" class="rtab">知識庫管理</button>
+            <button id="tab-kb" class="rtab admin-tab hidden">知識庫管理</button>
+            <button id="tab-admin" class="rtab admin-tab hidden">系統管理</button>
+            <button id="tab-backup" class="rtab admin-tab hidden">資料備份</button>
           </div>
 
           <!-- 分頁一：分數彙整 -->
@@ -311,6 +314,52 @@
 
             <h3 style="margin-top:20px">現有知識檔</h3>
             <div id="kb-list"></div>
+          </section>
+
+          <!-- 分頁三：系統管理（管理員專用） -->
+          <section id="pane-admin" class="hidden">
+            <div class="admin-block">
+              <h3>功能開關與首頁公告</h3>
+              <p class="hint">關閉的功能會從首頁隱藏並暫停服務（進行中的評分不受影響）；公告會顯示在首頁最上方。儲存後立即生效並永久保存。</p>
+              <label class="switch-row"><input type="checkbox" id="flag-roleplay" /><span>🎭 情境演練</span></label>
+              <label class="switch-row"><input type="checkbox" id="flag-qa" /><span>📚 知識問答</span></label>
+              <label class="switch-row"><input type="checkbox" id="flag-quiz" /><span>📝 隨機測驗</span></label>
+              <label class="field-label" for="flag-announcement" style="margin-top:14px">首頁公告（留空＝不顯示）</label>
+              <input id="flag-announcement" type="text" maxlength="200" placeholder="例：知識庫更新中，知識問答暫停至 18:00" autocomplete="off" />
+              <button id="btn-flags-save" class="btn-primary btn-block" style="margin-top:16px">儲存開關與公告</button>
+              <div id="flags-msg" class="hint"></div>
+            </div>
+
+            <div class="admin-block">
+              <h3>業務名單管理</h3>
+              <p class="hint">一行一個名字。演練姓名選單與分數彙整都依此名單。儲存後立即生效並永久保存。</p>
+              <textarea id="roster-edit" rows="10" spellcheck="false"></textarea>
+              <button id="btn-roster-save" class="btn-primary btn-block" style="margin-top:16px">儲存名單</button>
+              <div id="roster-msg" class="hint"></div>
+            </div>
+
+            <div class="admin-block">
+              <h3>操作稽核日誌</h3>
+              <p class="hint">最近 100 筆後台操作（登入、知識庫、名單、開關、備份），供事後追查。</p>
+              <div id="audit-list"></div>
+            </div>
+          </section>
+
+          <!-- 分頁四：資料備份（管理員專用） -->
+          <section id="pane-backup" class="hidden">
+            <div class="admin-block">
+              <h3>資料備份</h3>
+              <div id="backup-status" class="backup-status"></div>
+              <div class="backup-actions">
+                <button id="btn-backup-now" class="btn-primary">立即備份到 GitHub</button>
+                <button id="btn-backup-download" class="btn-outline">下載完整備份（JSON）</button>
+              </div>
+              <div id="backup-msg" class="hint"></div>
+              <p class="hint" style="margin-top:14px">
+                備份機制：①每日自動備份一次到 GitHub；②知識庫／名單／開關變更前自動備份；③網站重新部署後自動從最新備份還原演練紀錄。
+                另建議每月手動「下載完整備份」存到公司雲端一份，作為第三道保險。
+              </p>
+            </div>
           </section>
         </div>
       </div>

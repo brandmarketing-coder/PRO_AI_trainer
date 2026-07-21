@@ -772,6 +772,92 @@ input:focus, textarea:focus {
 .kb-btn.kb-del:hover { background: #fdf4f4; border-color: #d98a8a; }
 #kb-upload-msg:not(:empty) { margin-top: 10px; }
 
+/* ── 首頁公告 ── */
+.announce {
+  background: linear-gradient(160deg, #fbf7ec, #f7f2e2);
+  border: 1px solid var(--coach-border);
+  color: var(--coach-text);
+  border-radius: var(--radius-sm);
+  padding: 12px 16px;
+  margin-top: 18px;
+  font-size: 13.5px; line-height: 1.7;
+}
+
+/* ── 系統管理 ── */
+.admin-block {
+  background: #fff;
+  border: 1px solid rgba(25, 50, 47, 0.06);
+  border-radius: var(--radius);
+  padding: 20px;
+  margin-bottom: 16px;
+  box-shadow: var(--shadow-sm);
+}
+.admin-block h3 { color: var(--forest); font-size: 15.5px; margin-bottom: 8px; letter-spacing: 0.3px; }
+.admin-block .hint { margin-bottom: 14px; }
+.switch-row {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 2px;
+  font-size: 14.5px; font-weight: 700; color: var(--ink);
+  cursor: pointer;
+  border-bottom: 1px solid var(--stone-line);
+}
+.switch-row:last-of-type { border-bottom: none; }
+.switch-row input[type="checkbox"] {
+  appearance: none;
+  width: 42px; height: 24px; border-radius: 12px;
+  background: #d4d8d4;
+  position: relative;
+  cursor: pointer;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+.switch-row input[type="checkbox"]::after {
+  content: "";
+  position: absolute; top: 3px; left: 3px;
+  width: 18px; height: 18px; border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  transition: left 0.2s;
+}
+.switch-row input[type="checkbox"]:checked { background: var(--sage); }
+.switch-row input[type="checkbox"]:checked::after { left: 21px; }
+#roster-edit {
+  width: 100%;
+  border: 1.5px solid var(--stone-line);
+  border-radius: var(--radius-sm);
+  padding: 13px 14px;
+  font-size: 15px; line-height: 1.9;
+  font-family: inherit; resize: vertical;
+  background: #fff;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+#flags-msg:not(:empty), #roster-msg:not(:empty), #backup-msg:not(:empty) { margin-top: 10px; }
+.audit-table { min-width: 520px; font-size: 12.5px; }
+.audit-time { white-space: nowrap; color: var(--stone); }
+.audit-tag {
+  display: inline-block;
+  background: var(--mist-soft); border: 1px solid var(--mist);
+  color: var(--forest);
+  border-radius: 8px; padding: 1px 8px;
+  font-size: 11.5px; font-weight: 700;
+  white-space: nowrap;
+}
+
+/* ── 資料備份 ── */
+.backup-status { margin-bottom: 16px; }
+.bk-row {
+  display: flex; justify-content: space-between; gap: 12px;
+  padding: 10px 2px;
+  border-bottom: 1px solid var(--stone-line);
+  font-size: 14px;
+}
+.bk-row:last-child { border-bottom: none; }
+.bk-k { color: var(--stone); flex-shrink: 0; }
+.bk-v { color: var(--forest); font-weight: 700; text-align: right; }
+.bk-row.bk-warn .bk-v { color: #a15c1f; }
+.backup-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+@media (max-width: 480px) { .backup-actions { grid-template-columns: 1fr; } }
+
 /* ── 靜態展示版提示 ── */
 .static-notice {
   background: var(--coach-bg);

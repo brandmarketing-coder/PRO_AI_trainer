@@ -226,8 +226,27 @@
             err.status = 401;
             throw err;
           }
-          return DASHBOARD_DEMO;
+          return { role: "admin", ...DASHBOARD_DEMO };
         }
+        case "/api/admin/overview":
+          await sleep(250);
+          return {
+            flags: { roleplay: true, qa: true, quiz: true, announcement: "" },
+            roster: CONFIG.roster,
+            audit: [
+              { time: "2026-07-17T02:10:00Z", role: "admin", action: "登入後台", detail: "管理員" },
+              { time: "2026-07-16T08:30:00Z", role: "admin", action: "知識庫上傳", detail: "13_夏季活動方案.md（新增）" },
+              { time: "2026-07-16T08:00:00Z", role: "admin", action: "資料備份", detail: "手動備份，4 筆" },
+              { time: "2026-07-15T06:00:00Z", role: "viewer", action: "登入後台", detail: "主管" }
+            ],
+            backup: { records: 4, lastBackupAt: "2026-07-16T08:00:00Z", store: "github" },
+            admin_password_set: true
+          };
+        case "/api/admin/flags":
+        case "/api/admin/roster":
+        case "/api/admin/backup":
+          await sleep(300);
+          throw new Error("靜態展示版無法變更設定或備份，請使用完整部署版本。");
         case "/api/knowledge/list":
           await sleep(250);
           if (!body || body.password !== "12890464") { const e = new Error("密碼錯誤"); throw e; }

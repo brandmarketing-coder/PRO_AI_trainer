@@ -103,9 +103,49 @@ let FAQ = [];
 // 每次演練評分完成後寫入 data/records.json（逐筆 append）。
 // ⚠️ Render 免費方案磁碟是暫存的，重新部署／休眠會清空；長期保存請靠 N8N_WEBHOOK_URL 串到 Google Sheet。
 const REPORT_PASSWORD = process.env.REPORT_PASSWORD || "12890464";
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "";
 const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL || "";
 const DATA_DIR = path.join(__dirname, "data");
 const RECORDS_FILE = path.join(DATA_DIR, "records.json");
+const AUDIT_FILE = path.join(DATA_DIR, "audit.json");
+
+// ── 權限：兩級密碼 ──
+// REPORT_PASSWORD＝主管（viewer，只能看分數彙整）；ADMIN_PASSWORD＝管理員（admin，全部後台功能）。
+// 未設定 ADMIN_PASSWORD 時，REPORT_PASSWORD 直接視為管理員（與舊版行為相容，交接後請務必設定）。
+function roleOf(password) {
+  if (ADMIN_PASSWORD && password === ADMIN_PASSWORD) return "admin";
+  if (password === REPORT_PASSWORD) return ADMIN_PASSWORD ? "viewer" : "admin";
+  return null;
+}
+
+// ── 操作稽核日誌（data/audit.json，最多保留 500 筆，納入備份） ──
+function readAudit() {
+  try {
+    return fs.existsSync(AUDIT_FILE) ? JSON.parse(fs.readFileSync(AUDIT_FILE, "utf8")) : [];
+  } catch { return []; }
+}
+function audit(action, detail, role, req) {
+  try {
+    const list = readAudit();
+    list.push({
+      time: new Date().toISOString(),
+      role: role || "unknown",
+      action,
+      detail: String(detail || ""),
+      ip: req ? String(req.headers["x-forwarded-for"] || req.socket.remoteAddress || "").split(",")[0].trim() : ""
+    });
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+    fs.writeFileSync(AUDIT_FILE, JSON.stringify(list.slice(-500), null, 2));
+  } catch (e) {
+    console.warn("[audit] 寫入失敗：", e.message);
+  }
+}
+
+// ── 功能開關與維護公告（config/feature-flags.json；後台可即時修改並存回 GitHub） ──
+const FLAGS_FILE = path.join(__dirname, "config", "feature-flags.json");
+const DEFAULT_FLAGS = { roleplay: true, qa: true, quiz: true, announcement: "" };
+let flags = { ...DEFAULT_FLAGS };
+try { flags = { ...DEFAULT_FLAGS, ...JSON.parse(fs.readFileSync(FLAGS_FILE, "utf8")) }; } catch {}
 
 function readRecords() {
   try {
@@ -145,6 +185,10 @@ function appendRecord(rec) {
     fs.writeFileSync(RECORDS_FILE, JSON.stringify(list, null, 2));
   } catch (e) {
     console.warn("[records] 寫入失敗：", e.message);
+  }
+  // 每日自動備份：距上次備份超過 24 小時就順手備份一次（非阻塞）
+  if (Date.now() - lastBackupAt > 24 * 3600 * 1000) {
+    runBackup("每日自動備份").catch((e) => console.warn("[backup] 自動備份失敗：", e.message));
   }
   // 非阻塞地轉送到 n8n，失敗不影響主流程
   return forwardToN8n(rec);
@@ -503,12 +547,21 @@ app.get("/api/config", (req, res) => {
     knowledgeDir: KNOWLEDGE_DIR,
     demo: !llm,
     model: MODEL,
+    flags,                               // 功能開關與維護公告（前端據此隱藏功能卡、顯示公告）
     n8n_configured: !!N8N_WEBHOOK_URL,   // 是否已設定 N8N_WEBHOOK_URL（不外洩網址本身）
-    build: "2026-07-17-n8n-debug"        // 部署版本標記，用於確認新版已上線
+    build: "2026-07-17-admin"            // 部署版本標記，用於確認新版已上線
   });
 });
 
-app.post("/api/roleplay/turn", async (req, res) => {
+// 功能開關檢查：關閉中的功能擋在入口（進行中的評分／批改／報告不受影響）
+function featureGate(key, label) {
+  return (req, res, next) => {
+    if (flags[key]) return next();
+    res.status(503).json({ error: `${label}目前暫停開放${flags.announcement ? `：${flags.announcement}` : "，請稍後再試"}` });
+  };
+}
+
+app.post("/api/roleplay/turn", featureGate("roleplay", "情境演練"), async (req, res) => {
   try {
     const { themeId, difficulty, history, customTopic } = req.body;
     const theme = getTheme(themeId, customTopic);
@@ -565,7 +618,7 @@ app.post("/api/roleplay/evaluate", async (req, res) => {
   }
 });
 
-app.post("/api/qa", async (req, res) => {
+app.post("/api/qa", featureGate("qa", "知識問答"), async (req, res) => {
   try {
     const { history } = req.body; // [{role:'user'|'assistant', text}]
     const lastUser = [...history].reverse().find((m) => m.role === "user");
@@ -620,10 +673,14 @@ app.post("/api/records", async (req, res) => {
   }
 });
 
-// ── 報表後台（需密碼）──
+// ── 報表後台（需密碼；主管/管理員皆可看分數彙整）──
 app.post("/api/report/dashboard", (req, res) => {
-  const { password } = req.body || {};
-  if (password !== REPORT_PASSWORD) return res.status(401).json({ error: "密碼錯誤" });
+  const role = roleOf((req.body || {}).password);
+  if (!role) {
+    audit("登入失敗", "密碼錯誤", "unknown", req);
+    return res.status(401).json({ error: "密碼錯誤" });
+  }
+  audit("登入後台", role === "admin" ? "管理員" : "主管", role, req);
 
   const roster = config.roster || [];
   const records = readRecords();
@@ -659,6 +716,7 @@ app.post("/api/report/dashboard", (req, res) => {
 
   const practicedCount = rosterStats.filter((r) => r.practiced).length;
   res.json({
+    role,   // viewer＝只能看分數彙整；admin＝所有後台分頁
     summary: {
       roster_total: roster.length,
       practiced: practicedCount,
@@ -771,26 +829,33 @@ async function convertToMarkdown(rawText, filename) {
   return toTraditional(typeof out === "string" ? out : String(out || ""));
 }
 
-const gate = (req, res) => {
-  if ((req.body || {}).password !== REPORT_PASSWORD) { res.status(401).json({ error: "密碼錯誤" }); return false; }
-  return true;
+// 權限閘：need="viewer" 兩種密碼皆可；need="admin" 只有管理員密碼可過。
+// 回傳角色字串，未通過回 null（並已回應 401/403）。
+const gate = (req, res, need = "viewer") => {
+  const role = roleOf((req.body || {}).password);
+  if (!role) { res.status(401).json({ error: "密碼錯誤" }); return null; }
+  if (need === "admin" && role !== "admin") {
+    res.status(403).json({ error: "權限不足：此功能需要管理員密碼" });
+    return null;
+  }
+  return role;
 };
 
 app.post("/api/knowledge/list", async (req, res) => {
-  if (!gate(req, res)) return;
+  if (!gate(req, res, "admin")) return;
   try {
     res.json({ files: await listKnowledge(), store: useGitHub() ? "github" : "local", repo: useGitHub() ? GITHUB_REPO : null });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post("/api/knowledge/get", async (req, res) => {
-  if (!gate(req, res)) return;
+  if (!gate(req, res, "admin")) return;
   try { res.json({ filename: req.body.filename, content: await getKnowledge(req.body.filename) }); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post("/api/knowledge/upload", async (req, res) => {
-  if (!gate(req, res)) return;
+  if (!gate(req, res, "admin")) return;
   const { filename, content, convert } = req.body || {};
   if (!filename || !content || !String(content).trim()) return res.status(400).json({ error: "缺少檔名或內容" });
   try {
@@ -807,19 +872,168 @@ app.post("/api/knowledge/upload", async (req, res) => {
       md = toTraditional(md); // .md 直接上傳也統一轉繁體
     }
     if (!/\.md$/i.test(name)) name += ".md";
+    await backupBeforeRedeploy();   // 存回 GitHub 會觸發重新部署，先備份演練紀錄避免遺失
     const result = await saveKnowledge(name, md);
+    audit("知識庫上傳", `${name}（${result.updated ? "更新" : "新增"}${converted ? "，AI 整理" : ""}）`, "admin", req);
     res.json({ ok: true, filename: name, converted, store: useGitHub() ? "github" : "local", ...result });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post("/api/knowledge/delete", async (req, res) => {
-  if (!gate(req, res)) return;
+  if (!gate(req, res, "admin")) return;
   if (!req.body.filename) return res.status(400).json({ error: "缺少檔名" });
-  try { await deleteKnowledge(req.body.filename, req.body.sha); res.json({ ok: true }); }
+  try {
+    await backupBeforeRedeploy();
+    await deleteKnowledge(req.body.filename, req.body.sha);
+    audit("知識庫刪除", req.body.filename, "admin", req);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ══════════════════ 系統管理與資料備份（管理員專用） ══════════════════
+// 通用 GitHub 檔案讀寫（知識庫以外的檔案：備份、名單、功能開關）
+const ghAnyPath = (repoPath) => `/repos/${GITHUB_REPO}/contents/${repoPath.split("/").map(encodeURIComponent).join("/")}`;
+async function ghGetFile(repoPath) {
+  try {
+    const data = await ghApi("GET", `${ghAnyPath(repoPath)}?ref=${encodeURIComponent(GITHUB_BRANCH)}`);
+    return Buffer.from(data.content || "", "base64").toString("utf8");
+  } catch { return null; }   // 檔案不存在
+}
+async function ghSaveFile(repoPath, content, message) {
+  let sha;
+  try { sha = (await ghApi("GET", `${ghAnyPath(repoPath)}?ref=${encodeURIComponent(GITHUB_BRANCH)}`)).sha; } catch {}
+  const body = {
+    message,
+    content: Buffer.from(content, "utf8").toString("base64"),
+    branch: GITHUB_BRANCH
+  };
+  if (sha) body.sha = sha;
+  return ghApi("PUT", ghAnyPath(repoPath), body);
+}
+
+// ── 資料備份：backups/records.json（含演練紀錄＋稽核日誌）──
+// Render 免費方案磁碟是暫存的：任何重新部署都會清空 data/。因此：
+// ① 每日自動＋手動備份到 GitHub；② 任何會觸發重新部署的後台操作前先備份；③ 開機時自動還原。
+const BACKUP_PATH = "backups/records.json";
+let lastBackupAt = 0;
+
+async function runBackup(trigger, req) {
+  if (!useGitHub()) return { ok: false, error: "未設定 GITHUB_TOKEN，無法備份到 GitHub（仍可用「下載完整備份」手動保存）" };
+  const records = readRecords();
+  const payload = { savedAt: new Date().toISOString(), records, audit: readAudit() };
+  const r = await ghSaveFile(BACKUP_PATH, JSON.stringify(payload, null, 2), `資料備份：${records.length} 筆演練紀錄（${trigger}）`);
+  lastBackupAt = Date.now();
+  audit("資料備份", `${trigger}，${records.length} 筆`, "admin", req);
+  console.log(`[backup] 已備份 ${records.length} 筆演練紀錄到 GitHub（${trigger}）`);
+  return { ok: true, count: records.length, commit: r.commit && r.commit.sha };
+}
+
+// 會觸發 Render 重新部署的操作（知識庫、名單、開關存回 GitHub）前先備份，避免部署間隔遺失紀錄
+async function backupBeforeRedeploy() {
+  if (!useGitHub() || readRecords().length === 0) return;
+  try { await runBackup("設定變更前自動備份"); } catch (e) { console.warn("[backup] 變更前備份失敗：", e.message); }
+}
+
+// 開機還原：本機沒有紀錄（＝剛重新部署）且 GitHub 有備份時，把紀錄還原回來
+async function restoreFromBackup() {
+  try {
+    if (!useGitHub() || readRecords().length > 0) return;
+    const txt = await ghGetFile(BACKUP_PATH);
+    if (!txt) return;
+    const data = JSON.parse(txt);
+    if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+    if (Array.isArray(data.records) && data.records.length) {
+      fs.writeFileSync(RECORDS_FILE, JSON.stringify(data.records, null, 2));
+    }
+    if (Array.isArray(data.audit) && data.audit.length && readAudit().length === 0) {
+      fs.writeFileSync(AUDIT_FILE, JSON.stringify(data.audit, null, 2));
+    }
+    lastBackupAt = Date.parse(data.savedAt) || 0;
+    console.log(`[backup] 已從 GitHub 還原 ${(data.records || []).length} 筆演練紀錄（備份於 ${data.savedAt}）`);
+  } catch (e) {
+    console.warn("[backup] 開機還原失敗：", e.message);
+  }
+}
+
+// ── 管理端點 ──
+// 總覽：功能開關、名單、稽核日誌、備份狀態一次帶回
+app.post("/api/admin/overview", (req, res) => {
+  if (!gate(req, res, "admin")) return;
+  res.json({
+    flags,
+    roster: config.roster || [],
+    audit: readAudit().slice(-100).reverse(),
+    backup: {
+      records: readRecords().length,
+      lastBackupAt: lastBackupAt ? new Date(lastBackupAt).toISOString() : null,
+      store: useGitHub() ? "github" : "local",
+      auto: "每日自動備份一次；知識庫／名單／開關變更時也會先自動備份"
+    },
+    admin_password_set: !!ADMIN_PASSWORD
+  });
+});
+
+// 功能開關與公告：立即生效（記憶體）＋ 存回 GitHub（重新部署後仍有效）
+app.post("/api/admin/flags", async (req, res) => {
+  if (!gate(req, res, "admin")) return;
+  const f = req.body.flags || {};
+  try {
+    flags = {
+      roleplay: f.roleplay !== false,
+      qa: f.qa !== false,
+      quiz: f.quiz !== false,
+      announcement: String(f.announcement || "").slice(0, 200)
+    };
+    const json = JSON.stringify(flags, null, 2);
+    try { fs.writeFileSync(FLAGS_FILE, json); } catch {}
+    if (useGitHub()) {
+      await backupBeforeRedeploy();
+      await ghSaveFile("config/feature-flags.json", json, "系統管理：更新功能開關與公告（後台）");
+    }
+    audit("功能開關", `演練:${flags.roleplay ? "開" : "關"} 問答:${flags.qa ? "開" : "關"} 測驗:${flags.quiz ? "開" : "關"}${flags.announcement ? `，公告：${flags.announcement}` : ""}`, "admin", req);
+    res.json({ ok: true, flags, persisted: useGitHub() });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 業務名單：立即生效（記憶體）＋ 存回 GitHub 的 trainer-config.json
+app.post("/api/admin/roster", async (req, res) => {
+  if (!gate(req, res, "admin")) return;
+  const roster = Array.isArray(req.body.roster)
+    ? [...new Set(req.body.roster.map((n) => String(n).trim()).filter(Boolean))]
+    : null;
+  if (!roster || !roster.length) return res.status(400).json({ error: "名單不可為空" });
+  try {
+    const before = (config.roster || []).length;
+    config.roster = roster;
+    const json = JSON.stringify(config, null, 2);
+    try { fs.writeFileSync(path.join(__dirname, "config", "trainer-config.json"), json); } catch {}
+    if (useGitHub()) {
+      await backupBeforeRedeploy();
+      await ghSaveFile("config/trainer-config.json", json, `系統管理：更新業務名單（${before} → ${roster.length} 人，後台）`);
+    }
+    audit("名單更新", `${before} → ${roster.length} 人`, "admin", req);
+    res.json({ ok: true, roster, persisted: useGitHub() });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 手動備份
+app.post("/api/admin/backup", async (req, res) => {
+  if (!gate(req, res, "admin")) return;
+  try { res.json(await runBackup("手動備份", req)); }
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-app.post("/api/quiz/next", async (req, res) => {
+// 下載完整備份（JSON 檔：演練紀錄＋稽核日誌）
+app.post("/api/admin/backup/download", (req, res) => {
+  if (!gate(req, res, "admin")) return;
+  audit("下載備份", `${readRecords().length} 筆`, "admin", req);
+  const payload = { savedAt: new Date().toISOString(), records: readRecords(), audit: readAudit() };
+  res.setHeader("Content-Type", "application/json; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename=oright-trainer-backup-${new Date().toISOString().slice(0, 10)}.json`);
+  res.send(JSON.stringify(payload, null, 2));
+});
+
+app.post("/api/quiz/next", featureGate("quiz", "隨機測驗"), async (req, res) => {
   try {
     const { module, asked } = req.body;
     if (!llm) return res.json(DEMO_QUIZ_Q);
@@ -905,4 +1119,6 @@ app.post("/api/quiz/report", async (req, res) => {
 app.listen(PORT, () => {
   console.log(`O'right｜PRO 業務教育教練 http://localhost:${PORT}`);
   console.log(llm ? `AI 模式（${PROVIDER} / ${MODEL}）` : "示範模式：未設定 API 金鑰（OPENAI_API_KEY 或 ANTHROPIC_API_KEY），將使用固定腳本回覆");
+  if (!ADMIN_PASSWORD) console.warn("⚠️ 未設定 ADMIN_PASSWORD：REPORT_PASSWORD 目前具有完整管理權限。交接前請在環境變數設定 ADMIN_PASSWORD 以啟用兩級權限。");
+  restoreFromBackup();   // 重新部署後從 GitHub 備份還原演練紀錄（非阻塞）
 });

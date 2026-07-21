@@ -866,8 +866,9 @@ $("btn-quiz-report").onclick = async (e) => {
   }
 };
 
-// ═════════════════ 報表後台（主管專用） ═════════════════
-let reportPw = ""; // 解鎖後暫存密碼，供知識庫管理 API 沿用（僅存在記憶體、離開報表即清）
+// ═════════════════ 報表後台（主管＝分數彙整；管理員＝全部分頁） ═════════════════
+let reportPw = "";   // 解鎖後暫存密碼，供後台 API 沿用（僅存在記憶體、離開報表即清）
+let reportRole = ""; // "viewer"（主管）或 "admin"（管理員）
 
 $("btn-report").onclick = () => {
   // 每次進入都回到鎖定狀態，需重新輸入密碼
@@ -875,6 +876,8 @@ $("btn-report").onclick = () => {
   $("report-content").classList.add("hidden");
   $("report-pw").value = "";
   reportPw = "";
+  reportRole = "";
+  document.querySelectorAll(".admin-tab").forEach((t) => t.classList.add("hidden"));
   switchReportTab("scores");
   go("report");
   $("report-pw").focus();
@@ -889,6 +892,8 @@ async function unlockReport() {
   try {
     const data = await api("/api/report/dashboard", { password: pw });
     reportPw = pw;
+    reportRole = data.role || "admin";
+    document.querySelectorAll(".admin-tab").forEach((t) => t.classList.toggle("hidden", reportRole !== "admin"));
     renderDashboard(data);
     $("report-lock").classList.add("hidden");
     $("report-content").classList.remove("hidden");
@@ -903,16 +908,134 @@ $("btn-report-unlock").onclick = unlockReport;
 $("report-pw").addEventListener("keydown", (e) => { if (e.key === "Enter") unlockReport(); });
 
 // ── 報表分頁切換 ──
+const REPORT_TABS = ["scores", "kb", "admin", "backup"];
 function switchReportTab(which) {
-  const isKb = which === "kb";
-  $("tab-scores").classList.toggle("active", !isKb);
-  $("tab-kb").classList.toggle("active", isKb);
-  $("pane-scores").classList.toggle("hidden", isKb);
-  $("pane-kb").classList.toggle("hidden", !isKb);
-  if (isKb) loadKbList();
+  REPORT_TABS.forEach((t) => {
+    $("tab-" + t).classList.toggle("active", t === which);
+    $("pane-" + t).classList.toggle("hidden", t !== which);
+  });
+  if (which === "kb") loadKbList();
+  if (which === "admin") loadAdmin();
+  if (which === "backup") loadBackup();
 }
-$("tab-scores").onclick = () => switchReportTab("scores");
-$("tab-kb").onclick = () => switchReportTab("kb");
+REPORT_TABS.forEach((t) => { $("tab-" + t).onclick = () => switchReportTab(t); });
+
+// ── 系統管理 ──
+async function loadAdmin() {
+  $("audit-list").innerHTML = `<p class="hint">載入中…</p>`;
+  try {
+    const d = await api("/api/admin/overview", { password: reportPw });
+    $("flag-roleplay").checked = d.flags.roleplay !== false;
+    $("flag-qa").checked = d.flags.qa !== false;
+    $("flag-quiz").checked = d.flags.quiz !== false;
+    $("flag-announcement").value = d.flags.announcement || "";
+    $("roster-edit").value = (d.roster || []).join("\n");
+    renderAudit(d.audit || []);
+  } catch (err) {
+    $("audit-list").innerHTML = `<p class="hint">讀取失敗：${esc(err.message)}</p>`;
+  }
+}
+
+function renderAudit(list) {
+  if (!list.length) {
+    $("audit-list").innerHTML = `<p class="hint">目前沒有紀錄。</p>`;
+    return;
+  }
+  const rows = list.map((a) =>
+    `<tr><td class="audit-time">${fmtDateTime(a.time)}</td>` +
+    `<td><span class="audit-tag">${esc(a.action)}</span></td>` +
+    `<td>${esc(a.detail || "—")}</td>` +
+    `<td>${a.role === "admin" ? "管理員" : a.role === "viewer" ? "主管" : "—"}</td></tr>`
+  ).join("");
+  $("audit-list").innerHTML =
+    `<div class="table-scroll"><table class="report-table audit-table">` +
+    `<thead><tr><th>時間</th><th>動作</th><th>內容</th><th>身分</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+$("btn-flags-save").onclick = async (e) => {
+  const btn = e.currentTarget;
+  btn.disabled = true; btn.textContent = "儲存中…";
+  $("flags-msg").textContent = "";
+  try {
+    const r = await api("/api/admin/flags", {
+      password: reportPw,
+      flags: {
+        roleplay: $("flag-roleplay").checked,
+        qa: $("flag-qa").checked,
+        quiz: $("flag-quiz").checked,
+        announcement: $("flag-announcement").value.trim()
+      }
+    });
+    $("flags-msg").textContent = `✓ 已儲存並立即生效${r.persisted ? "，已永久保存到 GitHub" : "（未設 GITHUB_TOKEN，重新部署後會還原）"}。`;
+  } catch (err) {
+    $("flags-msg").textContent = "儲存失敗：" + err.message;
+  } finally {
+    btn.disabled = false; btn.textContent = "儲存開關與公告";
+  }
+};
+
+$("btn-roster-save").onclick = async (e) => {
+  const roster = $("roster-edit").value.split("\n").map((s) => s.trim()).filter(Boolean);
+  if (!roster.length) { toast("名單不可為空"); return; }
+  const btn = e.currentTarget;
+  btn.disabled = true; btn.textContent = "儲存中…";
+  $("roster-msg").textContent = "";
+  try {
+    const r = await api("/api/admin/roster", { password: reportPw, roster });
+    $("roster-msg").textContent = `✓ 已儲存 ${r.roster.length} 人並立即生效${r.persisted ? "，已永久保存到 GitHub" : "（未設 GITHUB_TOKEN，重新部署後會還原）"}。`;
+    $("roster-edit").value = r.roster.join("\n");
+  } catch (err) {
+    $("roster-msg").textContent = "儲存失敗：" + err.message;
+  } finally {
+    btn.disabled = false; btn.textContent = "儲存名單";
+  }
+};
+
+// ── 資料備份 ──
+async function loadBackup() {
+  $("backup-status").innerHTML = `<p class="hint">載入中…</p>`;
+  try {
+    const d = await api("/api/admin/overview", { password: reportPw });
+    const b = d.backup || {};
+    $("backup-status").innerHTML =
+      `<div class="bk-row"><span class="bk-k">目前演練紀錄</span><span class="bk-v">${b.records ?? 0} 筆</span></div>` +
+      `<div class="bk-row"><span class="bk-k">上次備份</span><span class="bk-v">${b.lastBackupAt ? fmtDateTime(b.lastBackupAt) : "本次啟動後尚未備份"}</span></div>` +
+      `<div class="bk-row"><span class="bk-k">備份位置</span><span class="bk-v">${b.store === "github" ? "GitHub（永久保存）" : "⚠️ 僅本機（未設 GITHUB_TOKEN，重新部署會遺失）"}</span></div>` +
+      (d.admin_password_set ? "" : `<div class="bk-row bk-warn"><span class="bk-k">權限提醒</span><span class="bk-v">尚未設定 ADMIN_PASSWORD，目前主管密碼即有完整管理權限</span></div>`);
+  } catch (err) {
+    $("backup-status").innerHTML = `<p class="hint">讀取失敗：${esc(err.message)}</p>`;
+  }
+}
+
+$("btn-backup-now").onclick = async (e) => {
+  const btn = e.currentTarget;
+  btn.disabled = true; btn.textContent = "備份中…";
+  $("backup-msg").textContent = "";
+  try {
+    const r = await api("/api/admin/backup", { password: reportPw });
+    $("backup-msg").textContent = r.ok
+      ? `✓ 已備份 ${r.count} 筆演練紀錄到 GitHub。`
+      : `備份未完成：${r.error || "未知原因"}`;
+    loadBackup();
+  } catch (err) {
+    $("backup-msg").textContent = "備份失敗：" + err.message;
+  } finally {
+    btn.disabled = false; btn.textContent = "立即備份到 GitHub";
+  }
+};
+
+$("btn-backup-download").onclick = async (e) => {
+  const btn = e.currentTarget;
+  btn.disabled = true; btn.textContent = "產生中…";
+  try {
+    const blob = await apiBlob("/api/admin/backup/download", { password: reportPw });
+    triggerDownload(blob, `oright-trainer-backup-${todayStr().replaceAll("/", "")}.json`);
+  } catch (err) {
+    toast(err.message);
+  } finally {
+    btn.disabled = false; btn.textContent = "下載完整備份（JSON）";
+  }
+};
 
 // ── 知識庫管理 ──
 async function loadKbList() {
@@ -1108,6 +1231,17 @@ async function init() {
     return;
   }
   if (CONFIG.demo) $("demo-badge").classList.remove("hidden");
+  // 功能開關：關閉中的功能從首頁隱藏；公告顯示在首頁最上方
+  const flags = CONFIG.flags || {};
+  const flagMap = { "rp-theme": "roleplay", "qa": "qa", "quiz-setup": "quiz" };
+  document.querySelectorAll(".feature-card").forEach((card) => {
+    const key = flagMap[card.dataset.goto];
+    if (key && flags[key] === false) card.classList.add("hidden");
+  });
+  if (flags.announcement) {
+    $("announcement").textContent = "📢 " + flags.announcement;
+    $("announcement").classList.remove("hidden");
+  }
   // 業務姓名名單（報表依此統計）
   $("roster-list").innerHTML = (CONFIG.roster || []).map((n) => `<option value="${esc(n)}"></option>`).join("");
   renderThemes();
