@@ -232,6 +232,8 @@
           <h2>想考哪個範圍？</h2>
           <p class="hint">一次一題，回答後立即評分講解</p>
         </div>
+        <label class="field-label" for="quiz-name">你的姓名（測驗成績會記錄）</label>
+        <input id="quiz-name" type="text" list="roster-list" placeholder="輸入或選擇你的姓名" maxlength="20" autocomplete="off" style="margin-bottom:18px" />
         <div id="quiz-module-list" class="option-list"></div>
       </div>
     </main>
@@ -377,6 +379,7 @@
             <p class="hint">分數與時間為最近一次演練結果。</p>
             <div id="report-roster"></div>
             <div id="report-others"></div>
+            <div id="report-submissions" class="report-subs"></div>
           </section>
 
           <!-- 分頁二：知識庫管理 -->

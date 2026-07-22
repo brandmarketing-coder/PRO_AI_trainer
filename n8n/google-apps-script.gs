@@ -26,22 +26,31 @@
 // ← ★ 必填：貼上你的試算表 ID（見上方步驟 1）。留空會退回用「目前作用中的試算表」。
 const SHEET_ID = "";
 
-const SHEET_NAME = "演練紀錄"; // 要寫入的工作表分頁名稱，可自行修改
+// 三種紀錄各寫一個分頁（App 依 _sheet 欄位指定要寫哪個；分頁不存在會自動建立＋標題列）
+const SHEETS = {
+  "演練紀錄": [
+    "時間", "業務", "主題", "模式", "總分",
+    "層級", "層級說明", "待加強面向", "各面向分數", "逐字稿"
+  ],
+  "指定演練": [
+    "時間", "業務", "題目", "總分", "層級",
+    "重點評分", "做得好", "待加強", "整體評語", "逐字稿"
+  ],
+  "測驗成績": [
+    "時間", "業務", "測驗範圍", "題數", "答對", "正確率", "逐題摘要"
+  ]
+};
+const DEFAULT_SHEET = "演練紀錄";
 
-const HEADERS = [
-  "時間", "業務", "主題", "模式", "總分",
-  "層級", "層級說明", "待加強面向", "各面向分數", "逐字稿"
-];
-
-function getSheet_() {
+function getSheet_(sheetName) {
   const ss = SHEET_ID
     ? SpreadsheetApp.openById(SHEET_ID)
     : SpreadsheetApp.getActiveSpreadsheet();
   if (!ss) throw new Error("找不到試算表：請在程式最上方填入 SHEET_ID");
-  let sheet = ss.getSheetByName(SHEET_NAME);
-  if (!sheet) sheet = ss.insertSheet(SHEET_NAME);
+  let sheet = ss.getSheetByName(sheetName);
+  if (!sheet) sheet = ss.insertSheet(sheetName);
   if (sheet.getLastRow() === 0) {
-    sheet.appendRow(HEADERS);
+    sheet.appendRow(SHEETS[sheetName]);
     sheet.setFrozenRows(1);
   }
   return sheet;
@@ -50,10 +59,12 @@ function getSheet_() {
 function doPost(e) {
   try {
     const data = JSON.parse((e && e.postData && e.postData.contents) || "{}");
-    const sheet = getSheet_();
-    sheet.appendRow(HEADERS.map((h) => (data[h] != null ? String(data[h]) : "")));
+    const sheetName = SHEETS[data._sheet] ? data._sheet : DEFAULT_SHEET;
+    const headers = SHEETS[sheetName];
+    const sheet = getSheet_(sheetName);
+    sheet.appendRow(headers.map((h) => (data[h] != null ? String(data[h]) : "")));
     return ContentService
-      .createTextOutput(JSON.stringify({ ok: true }))
+      .createTextOutput(JSON.stringify({ ok: true, sheet: sheetName }))
       .setMimeType(ContentService.MimeType.JSON);
   } catch (err) {
     return ContentService

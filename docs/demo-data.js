@@ -217,6 +217,7 @@
           await sleep(800);
           return QUIZ_GRADE;
         case "/api/records":
+        case "/api/quiz/record":
           await sleep(200);
           return { ok: true, demo: true };
         case "/api/report/dashboard": {

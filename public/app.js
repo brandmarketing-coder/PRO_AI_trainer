@@ -113,6 +113,8 @@ function go(name) {
   // 報表 icon 只在首頁顯示（避免演練/報告畫面誤觸）
   $("btn-report").classList.toggle("hidden", name !== "home");
   if (!meta.brand) $("appbar-title").textContent = meta.titleOverride || meta.title;
+  // 回首頁時刷新指定演練卡（主管剛出題／關題，回首頁就看得到，不用重整）
+  if (name === "home" && CONFIG) refreshAssignCard();
 }
 
 $("nav-back").onclick = () => {
@@ -722,6 +724,8 @@ function renderQuizModules() {
 }
 
 function startQuiz(moduleId, moduleLabel) {
+  const qn = $("quiz-name").value.trim();
+  if (qn) state.name = qn;
   state.quizModule = moduleId;
   state.quizModuleLabel = moduleLabel;
   state.quizAsked = [];
@@ -829,6 +833,14 @@ $("btn-quiz-finish").onclick = () => {
   }
   renderQuizResult();
   go("quiz-result");
+  // 非阻塞歸檔測驗成績（供主管報表與 Google Sheet），失敗不影響使用者
+  api("/api/quiz/record", {
+    name: state.name,
+    moduleLabel: state.quizModuleLabel,
+    total: state.quizItems.length,
+    correct: state.quizItems.filter((it) => it.correct).length,
+    items: state.quizItems.map((it) => ({ question: it.question, correct: it.correct }))
+  }).catch(() => {});
 };
 
 function renderQuizResult() {
@@ -1102,6 +1114,7 @@ $("btn-asg-save").onclick = async (e) => {
     $("asg-msg").textContent = `✓ 已發布「${r.assignment.title}」${r.persisted ? "，已永久保存" : "（未設 GITHUB_TOKEN，重新部署後會還原）"}。`;
     resetAsgForm();
     loadAssignAdmin();
+    refreshAssignCard();   // 首頁的指定演練卡立即更新
   } catch (err) {
     $("asg-msg").textContent = "發布失敗：" + err.message;
   } finally {
@@ -1114,7 +1127,7 @@ function deleteAssignment(id, a) {
     title: "刪除題目？", body: `確定刪除「${a ? a.title : ""}」？已繳交的紀錄會保留，但業務不會再看到這題。`,
     okText: "刪除", cancelText: "取消"
   }, async () => {
-    try { await api("/api/admin/assignment/delete", { password: reportPw, id }); toast("已刪除"); loadAssignAdmin(); }
+    try { await api("/api/admin/assignment/delete", { password: reportPw, id }); toast("已刪除"); loadAssignAdmin(); refreshAssignCard(); }
     catch (err) { toast("刪除失敗：" + err.message); }
   });
 }
@@ -1225,6 +1238,8 @@ $("btn-flags-save").onclick = async (e) => {
       }
     });
     $("flags-msg").textContent = `✓ 已儲存並立即生效${r.persisted ? "，已永久保存到 GitHub" : "（未設 GITHUB_TOKEN，重新部署後會還原）"}。`;
+    CONFIG.flags = r.flags;   // 立即套用回首頁（功能卡與公告），不用重整
+    applyFlags();
   } catch (err) {
     $("flags-msg").textContent = "儲存失敗：" + err.message;
   } finally {
@@ -1242,6 +1257,8 @@ $("btn-roster-save").onclick = async (e) => {
     const r = await api("/api/admin/roster", { password: reportPw, roster });
     $("roster-msg").textContent = `✓ 已儲存 ${r.roster.length} 人並立即生效${r.persisted ? "，已永久保存到 GitHub" : "（未設 GITHUB_TOKEN，重新部署後會還原）"}。`;
     $("roster-edit").value = r.roster.join("\n");
+    CONFIG.roster = r.roster;   // 立即套用回姓名選單，不用重整
+    applyRoster();
   } catch (err) {
     $("roster-msg").textContent = "儲存失敗：" + err.message;
   } finally {
@@ -1255,10 +1272,15 @@ async function loadBackup() {
   try {
     const d = await api("/api/admin/overview", { password: reportPw });
     const b = d.backup || {};
+    const archiveLabel = b.archive === "apps_script" ? "Google Sheet（Apps Script 直連）"
+      : b.archive === "n8n" ? "n8n → Google Sheet"
+      : "⚠️ 未設定（僅本機＋GitHub 備份）";
     $("backup-status").innerHTML =
-      `<div class="bk-row"><span class="bk-k">目前演練紀錄</span><span class="bk-v">${b.records ?? 0} 筆</span></div>` +
+      `<div class="bk-row"><span class="bk-k">情境演練紀錄</span><span class="bk-v">${b.records ?? 0} 筆</span></div>` +
+      `<div class="bk-row"><span class="bk-k">指定演練繳交</span><span class="bk-v">${b.submissions ?? 0} 筆</span></div>` +
       `<div class="bk-row"><span class="bk-k">上次備份</span><span class="bk-v">${b.lastBackupAt ? fmtDateTime(b.lastBackupAt) : "本次啟動後尚未備份"}</span></div>` +
       `<div class="bk-row"><span class="bk-k">備份位置</span><span class="bk-v">${b.store === "github" ? "GitHub（永久保存）" : "⚠️ 僅本機（未設 GITHUB_TOKEN，重新部署會遺失）"}</span></div>` +
+      `<div class="bk-row${b.archive === "none" ? " bk-warn" : ""}"><span class="bk-k">即時歸檔</span><span class="bk-v">${archiveLabel}</span></div>` +
       (d.admin_password_set ? "" : `<div class="bk-row bk-warn"><span class="bk-k">權限提醒</span><span class="bk-v">尚未設定 ADMIN_PASSWORD，目前主管密碼即有完整管理權限</span></div>`);
   } catch (err) {
     $("backup-status").innerHTML = `<p class="hint">讀取失敗：${esc(err.message)}</p>`;
@@ -1478,6 +1500,23 @@ function renderDashboard(data) {
   } else {
     $("report-others").innerHTML = "";
   }
+
+  // 最近的指定演練繳交
+  const subs = data.submissions_recent || [];
+  if (subs.length) {
+    $("report-submissions").innerHTML =
+      `<h3>指定演練繳交（最近 ${subs.length} 筆）</h3>` +
+      `<div class="table-scroll"><table class="report-table">` +
+      `<thead><tr><th>業務</th><th>題目</th><th>分數</th><th>層級</th><th>繳交時間</th><th>狀態</th></tr></thead><tbody>` +
+      subs.map((s) =>
+        `<tr><td>${esc(s.name)}</td><td>${esc(s.title)}</td><td>${s.score != null ? s.score + " 分" : "—"}</td>` +
+        `<td><span class="lv-badge">${esc(s.level || "—")}</span></td><td>${fmtDateTime(s.date)}</td>` +
+        `<td>${s.approved ? '<span class="asg-on">已收錄</span>' : s.nominated ? '<span class="asg-nom">優良候選</span>' : "—"}</td></tr>`
+      ).join("") +
+      `</tbody></table></div>`;
+  } else {
+    $("report-submissions").innerHTML = "";
+  }
 }
 
 // ═════════════════ 初始化 ═════════════════
@@ -1489,19 +1528,8 @@ async function init() {
     return;
   }
   if (CONFIG.demo) $("demo-badge").classList.remove("hidden");
-  // 功能開關：關閉中的功能從首頁隱藏；公告顯示在首頁最上方
-  const flags = CONFIG.flags || {};
-  const flagMap = { "rp-theme": "roleplay", "qa": "qa", "quiz-setup": "quiz" };
-  document.querySelectorAll(".feature-card").forEach((card) => {
-    const key = flagMap[card.dataset.goto];
-    if (key && flags[key] === false) card.classList.add("hidden");
-  });
-  if (flags.announcement) {
-    $("announcement").textContent = "📢 " + flags.announcement;
-    $("announcement").classList.remove("hidden");
-  }
-  // 業務姓名名單（報表依此統計）
-  $("roster-list").innerHTML = (CONFIG.roster || []).map((n) => `<option value="${esc(n)}"></option>`).join("");
+  applyFlags();
+  applyRoster();
   renderThemes();
   renderModes();
   renderQaStarter();
@@ -1509,16 +1537,38 @@ async function init() {
   setupMic("mic-chat", "chat-input");
   setupMic("mic-qa", "qa-input");
   setupMic("mic-quiz", "quiz-answer");
-  // 指定演練：有開放題目時，首頁顯示「指定演練」卡並標示題數
+  refreshAssignCard();
+}
+
+// ── 首頁狀態套用（init 與後台儲存後都會呼叫，雙向切換不用重整頁面） ──
+// 功能開關：關閉中的功能從首頁隱藏；公告顯示在首頁最上方
+function applyFlags() {
+  const flags = CONFIG.flags || {};
+  const flagMap = { "rp-theme": "roleplay", "qa": "qa", "quiz-setup": "quiz" };
+  document.querySelectorAll(".feature-card").forEach((card) => {
+    const key = flagMap[card.dataset.goto];
+    if (key) card.classList.toggle("hidden", flags[key] === false);
+  });
+  const a = $("announcement");
+  a.textContent = flags.announcement ? "📢 " + flags.announcement : "";
+  a.classList.toggle("hidden", !flags.announcement);
+}
+
+// 業務姓名名單（演練／測驗姓名選單與報表統計依此）
+function applyRoster() {
+  $("roster-list").innerHTML = (CONFIG.roster || []).map((n) => `<option value="${esc(n)}"></option>`).join("");
+}
+
+// 指定演練卡：有開放題目才顯示並標示題數（init、回首頁、後台出題後都會刷新）
+function refreshAssignCard() {
   api("/api/assignments/active").then((d) => {
     const list = d.assignments || [];
     state.assignActive = list;
-    if (list.length) {
-      document.querySelector(".feature-assign").classList.remove("hidden");
-      const badge = $("assign-badge");
-      badge.textContent = list.length;
-      badge.classList.remove("hidden");
-    }
+    const card = document.querySelector(".feature-assign");
+    const badge = $("assign-badge");
+    card.classList.toggle("hidden", !list.length);
+    badge.textContent = list.length;
+    badge.classList.toggle("hidden", !list.length);
   }).catch(() => {});
 }
 

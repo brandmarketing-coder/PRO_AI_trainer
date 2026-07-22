@@ -210,27 +210,42 @@ function formatRecordRow(rec) {
   };
 }
 
+// 送一列資料到 Google Sheet 的指定分頁（Apps Script 端依 _sheet 決定寫哪個分頁與標題列）
+async function sendToSheet(sheetName, row) {
+  if (!APPS_SCRIPT_URL) return { sent: false, reason: "未設定 APPS_SCRIPT_URL" };
+  try {
+    const r = await fetch(APPS_SCRIPT_URL, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ _sheet: sheetName, ...row }),
+      redirect: "follow"   // Apps Script /exec 會 302 轉址，需跟隨
+    });
+    const body = await r.text().catch(() => "");
+    const ok = r.ok && !/"ok"\s*:\s*false/.test(body);
+    if (ok) { console.log(`[sheet] 已寫入 Google Sheet「${sheetName}」`); return { sent: true, via: "apps_script", status: r.status }; }
+    console.warn(`[sheet] Apps Script 回應異常 HTTP ${r.status}：${body.slice(0, 120)}`);
+    return { sent: false, via: "apps_script", status: r.status, reason: body.slice(0, 120) || `HTTP ${r.status}` };
+  } catch (e) {
+    console.warn("[sheet] Apps Script 寫入失敗：", e.message);
+    return { sent: false, via: "apps_script", reason: e.message };
+  }
+}
+
+// 台北時區好讀時間
+function taipeiTime(iso) {
+  try {
+    return new Date(iso || Date.now()).toLocaleString("zh-TW", {
+      timeZone: "Asia/Taipei",
+      year: "numeric", month: "2-digit", day: "2-digit",
+      hour: "2-digit", minute: "2-digit", hour12: false
+    }).replace(/-/g, "/");
+  } catch { return String(iso || ""); }
+}
+
 // 歸檔到 Google Sheet：優先「App 直接送 Apps Script」（APPS_SCRIPT_URL，繞過公司防火牆、免 n8n）；
 // 未設時退回舊的 n8n webhook（送原始 rec，由 n8n 整理）。成功與失敗都寫 log 方便在 Render Logs 排查。
 async function forwardRecord(rec) {
-  if (APPS_SCRIPT_URL) {
-    try {
-      const r = await fetch(APPS_SCRIPT_URL, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(formatRecordRow(rec)),
-        redirect: "follow"   // Apps Script /exec 會 302 轉址，需跟隨
-      });
-      const body = await r.text().catch(() => "");
-      const ok = r.ok && !/"ok"\s*:\s*false/.test(body);
-      if (ok) { console.log(`[records] 已寫入 Google Sheet（Apps Script）：${rec.name}`); return { sent: true, via: "apps_script", status: r.status }; }
-      console.warn(`[records] Apps Script 回應異常 HTTP ${r.status}：${body.slice(0, 120)}`);
-      return { sent: false, via: "apps_script", status: r.status, reason: body.slice(0, 120) || `HTTP ${r.status}` };
-    } catch (e) {
-      console.warn("[records] Apps Script 寫入失敗：", e.message);
-      return { sent: false, via: "apps_script", reason: e.message };
-    }
-  }
+  if (APPS_SCRIPT_URL) return sendToSheet("演練紀錄", formatRecordRow(rec));
   if (N8N_WEBHOOK_URL) {
     try {
       const r = await fetch(N8N_WEBHOOK_URL, {
@@ -846,8 +861,14 @@ app.post("/api/report/dashboard", (req, res) => {
   });
 
   const practicedCount = rosterStats.filter((r) => r.practiced).length;
+  // 最近的指定演練繳交（主管在分數彙整頁一眼看到誰交了、幾分）
+  const recentSubs = readSubmissions().slice(-20).reverse().map((s) => ({
+    name: s.name, title: s.assignmentTitle, score: s.total_score, level: s.level,
+    date: s.date, nominated: !!s.nominated, approved: !!s.approved
+  }));
   res.json({
     role,   // viewer＝只能看分數彙整；admin＝所有後台分頁
+    submissions_recent: recentSubs,
     summary: {
       roster_total: roster.length,
       practiced: practicedCount,
@@ -1106,8 +1127,10 @@ app.post("/api/admin/overview", (req, res) => {
     audit: readAudit().slice(-100).reverse(),
     backup: {
       records: readRecords().length,
+      submissions: readSubmissions().length,
       lastBackupAt: lastBackupAt ? new Date(lastBackupAt).toISOString() : null,
       store: useGitHub() ? "github" : "local",
+      archive: APPS_SCRIPT_URL ? "apps_script" : N8N_WEBHOOK_URL ? "n8n" : "none",
       auto: "每日自動備份一次；知識庫／名單／開關變更時也會先自動備份"
     },
     admin_password_set: !!ADMIN_PASSWORD,
@@ -1257,6 +1280,8 @@ app.post("/api/assignment/submit", async (req, res) => {
       level: evaluation.level,
       criteria_scores: evaluation.criteria_scores || [],
       construct_scores: evaluation.construct_scores || [],
+      strengths: evaluation.strengths || [],
+      improvements: evaluation.improvements || [],
       overall: evaluation.overall || "",
       nominated: false,
       approved: false
@@ -1265,6 +1290,19 @@ app.post("/api/assignment/submit", async (req, res) => {
     list.push(submission);
     writeSubmissions(list);
     if (Date.now() - lastBackupAt > 24 * 3600 * 1000) runBackup("每日自動備份").catch(() => {});
+    // 非阻塞歸檔到 Google Sheet「指定演練」分頁
+    sendToSheet("指定演練", {
+      "時間": taipeiTime(submission.date),
+      "業務": submission.name,
+      "題目": submission.assignmentTitle,
+      "總分": submission.total_score != null ? submission.total_score : "",
+      "層級": submission.level || "",
+      "重點評分": submission.criteria_scores.map((c) => `${c.point}:${c.mark}`).join("、"),
+      "做得好": submission.strengths.join("；"),
+      "待加強": submission.improvements.join("；"),
+      "整體評語": submission.overall,
+      "逐字稿": submission.transcript
+    }).catch(() => {});
     res.json({ ok: true, submissionId: submission.id, evaluation });
   } catch (err) {
     console.error("assignment/submit error:", err);
@@ -1419,6 +1457,29 @@ app.post("/api/quiz/grade", async (req, res) => {
   }
 });
 
+
+// 測驗結束歸檔：前端在成績頁產生時回報，寫進 Google Sheet「測驗成績」分頁（非阻塞、失敗不影響使用者）
+app.post("/api/quiz/record", (req, res) => {
+  try {
+    const { name, moduleLabel, total, correct, items } = req.body || {};
+    if (!total) return res.json({ ok: true, skipped: true });
+    const summary = Array.isArray(items)
+      ? items.map((it, i) => `${i + 1}.${it.correct ? "✓" : "✗"} ${String(it.question || "").slice(0, 40)}`).join("\n")
+      : "";
+    sendToSheet("測驗成績", {
+      "時間": taipeiTime(),
+      "業務": (name || "").trim() || "未填寫",
+      "測驗範圍": moduleLabel || "",
+      "題數": total,
+      "答對": correct != null ? correct : "",
+      "正確率": total ? Math.round(((correct || 0) / total) * 100) + "%" : "",
+      "逐題摘要": summary
+    }).catch(() => {});
+    res.json({ ok: true });
+  } catch (err) {
+    res.json({ ok: true });   // 歸檔失敗不影響使用者
+  }
+});
 
 app.post("/api/report/docx", async (req, res) => {
   try {
