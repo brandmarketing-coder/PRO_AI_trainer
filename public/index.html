@@ -186,11 +186,6 @@
           <ul id="result-improvements" class="plain-list"></ul>
         </div>
         <div class="section-card">
-          <h3>建議改寫</h3>
-          <p class="rewrite-label">可以這樣說：</p>
-          <blockquote id="result-rewrite" class="rewrite-box"></blockquote>
-        </div>
-        <div class="section-card">
           <h3>整體評估</h3>
           <p id="result-overall" class="body-text"></p>
         </div>
@@ -245,6 +240,16 @@
         <label class="field-label" for="quiz-name">你的姓名（測驗成績會記錄）</label>
         <input id="quiz-name" type="text" list="roster-list" placeholder="輸入或選擇你的姓名" maxlength="20" autocomplete="off" style="margin-bottom:18px" />
         <div id="quiz-module-list" class="option-list"></div>
+
+        <!-- 自訂測驗範圍（點「自訂範圍」卡展開） -->
+        <div id="quiz-custom-panel" class="section-card hidden" style="margin-top:12px">
+          <h3>自訂測驗範圍</h3>
+          <p class="hint">勾選要出題的知識檔（至少一個），可再輸入出題方向讓題目更聚焦。</p>
+          <div id="quiz-custom-files" class="qc-files"></div>
+          <label class="field-label" for="quiz-custom-direction" style="margin-top:14px">出題方向（選填）</label>
+          <input id="quiz-custom-direction" type="text" maxlength="100" placeholder="例：只考容量與價格／著重禁用話術判斷" autocomplete="off" />
+          <button id="btn-quiz-custom-start" class="btn-primary btn-block">開始自訂測驗</button>
+        </div>
       </div>
     </main>
 
@@ -487,8 +492,9 @@
               </div>
               <div id="backup-msg" class="hint"></div>
               <p class="hint" style="margin-top:14px">
-                備份機制：①每日自動備份一次到 GitHub；②知識庫／名單／開關變更前自動備份；③網站重新部署後自動從最新備份還原演練紀錄。
-                另建議每月手動「下載完整備份」存到公司雲端一份，作為第三道保險。
+                備份機制：①每日自動備份一次到 GitHub；②知識庫／名單／開關變更前自動備份；③網站重新部署後自動從最新備份還原。
+                備份只存「重要系統資料」（分數摘要、稽核日誌、指定演練繳交），演練逐字稿不重複備份——完整逐字稿以 Google Sheet 即時歸檔為準。
+                「下載完整備份」則包含目前伺服器上的全部資料。
               </p>
             </div>
           </section>

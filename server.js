@@ -326,7 +326,12 @@ app.use(express.static(path.join(__dirname, "public"), {
 function buildDynamicSystem(featureText, contextQuery, retrieveOpts = {}) {
   let feature = featureText;
   if (contextQuery) {
-    const ctx = retrieve(KNOWLEDGE.sections, contextQuery, retrieveOpts);
+    // retrieveOpts.files：限定只從這些知識檔檢索（自訂測驗範圍用）
+    const { files, ...opts } = retrieveOpts;
+    const pool = Array.isArray(files) && files.length
+      ? KNOWLEDGE.sections.filter((s) => files.includes(s.file))
+      : KNOWLEDGE.sections;
+    const ctx = retrieve(pool, contextQuery, opts);
     if (ctx) {
       feature +=
         "\n\n【本次知識庫參考資料（回答涉及產品事實時，一律以這裡為準；這裡沒有的就說「目前資料中沒有看到明確說明」，不要臆測）】\n" +
@@ -487,7 +492,6 @@ const EVAL_SCHEMA = {
       }
     },
     improvements: { type: "array", items: { type: "string" } },
-    rewrite_example: { type: "string" },
     overall_judgment: { type: "string" },
     next_steps: {
       type: "array",
@@ -504,7 +508,7 @@ const EVAL_SCHEMA = {
   },
   required: [
     "constructs", "total_score", "level", "level_note", "overall_observation",
-    "rounds", "checkpoints", "improvements", "rewrite_example", "overall_judgment", "next_steps"
+    "rounds", "checkpoints", "improvements", "overall_judgment", "next_steps"
   ],
   additionalProperties: false
 };
@@ -631,7 +635,6 @@ const DEMO_EVAL = {
     "增加提問比例，讓店長先說需求。",
     "每輪結束時明確推進下一步，例如試做、示範、教育或確認品項。"
   ],
-  rewrite_example: "老師，我知道您現在合作品牌已經很穩定，所以我今天不是要您馬上更換，而是想先了解店內目前在哪一塊最想提升：頭皮養護、燙後護理，還是顧客居家回購？如果有一個品項能同時讓顧客感受到專業效果，又能帶出 O'right｜PRO 的 USDA Biobased、PCR 再生瓶器與零碳綠工廠差異，我會建議我們先從一場小型教育或試做開始，讓老師們自己感受再決定。",
   overall_judgment: "具備基本開發架構與品牌知識，目前以產品導向為主。若能提升提問能力並在每輪推進明確下一步，可望穩定進入 L2。（此為示範模式範例，設定 API 金鑰後將產生真實評估）",
   next_steps: [
     { direction: "提問能力", method: "練習每次介紹產品前，先問出沙龍目前最想改善的服務或銷售缺口。" },
@@ -753,12 +756,36 @@ app.post("/api/roleplay/evaluate", async (req, res) => {
       EVAL_SCHEMA,
       { maxTokens: 8000, contextQuery: salesQuery(history), retrieveOpts: { limit: 2, minScore: 3 } }
     );
-    res.json(result);
+    res.json(applyScoreCaps(result, history));
   } catch (err) {
     console.error("roleplay/evaluate error:", err);
     res.status(500).json({ error: err.message || "伺服器錯誤" });
   }
 });
+
+// 程式端評分硬上限：不信任模型自律，投入量不足的演練由程式強制壓分。
+// 規則與 prompts 的「評分紀律」一致：內容僅寒暄（<20字）→ 總分 ≤10；發言 <3 輪 → 總分 ≤40。
+function applyScoreCaps(result, history) {
+  try {
+    const salesTexts = history.filter((m) => m.role === "sales").map((m) => String(m.text || ""));
+    const totalChars = salesTexts.join("").replace(/\s/g, "").length;
+    let cap = 100;
+    const reasons = [];
+    if (salesTexts.length < 3) { cap = Math.min(cap, 40); reasons.push("業務發言少於 3 輪"); }
+    if (totalChars < 20) { cap = Math.min(cap, 10); reasons.push("內容僅寒暄或單句"); }
+    if (result.total_score > cap) {
+      const perConstruct = Math.floor(cap / 5);
+      (result.constructs || []).forEach((c) => {
+        c.score = Math.min(c.score, perConstruct);
+        c.mark = c.score >= 17 ? "◎" : c.score >= 12 ? "○" : "△";
+      });
+      result.total_score = (result.constructs || []).reduce((s, c) => s + (c.score || 0), 0);
+      if (result.total_score < 60) { result.level = "L1"; result.level_note = "未達 L1 門檻"; }
+      result.overall_judgment = `${result.overall_judgment || ""}（系統依評分紀律套用總分上限 ${cap} 分：${reasons.join("、")}。）`;
+    }
+  } catch (e) { console.warn("[evaluate] 套用評分上限失敗：", e.message); }
+  return result;
+}
 
 app.post("/api/qa", featureGate("qa", "知識問答"), async (req, res) => {
   try {
@@ -959,22 +986,49 @@ async function deleteKnowledge(filename, sha) {
   if (fs.existsSync(p)) fs.unlinkSync(p);
 }
 
-// 把非 Markdown 的原始資料（貼上的文字、.txt/.csv 等）交給 AI 整理成乾淨的繁體 Markdown 知識檔。
+// 把非 Markdown 的原始資料（貼上的文字、.txt/.csv 等）轉成 Markdown 知識檔。
+// 【原則：一字不刪】只做格式排版（標題層級、條列、表格、去亂碼），內容必須完整保留。
+// 長文切段逐段轉換再拼回，避免單次輸出上限造成內容被截斷或被 AI 濃縮。
+function splitForConvert(text, maxLen = 6000) {
+  const chunks = [];
+  let rest = String(text).replace(/\r\n/g, "\n");
+  while (rest.length > maxLen) {
+    // 優先在段落邊界切，找不到再往前找換行，最後硬切
+    let cut = rest.lastIndexOf("\n\n", maxLen);
+    if (cut < maxLen * 0.5) cut = rest.lastIndexOf("\n", maxLen);
+    if (cut < maxLen * 0.5) cut = maxLen;
+    chunks.push(rest.slice(0, cut));
+    rest = rest.slice(cut);
+  }
+  if (rest.trim()) chunks.push(rest);
+  return chunks;
+}
+
 async function convertToMarkdown(rawText, filename) {
   const instr =
-    "你是 O'right 知識庫整理助理。使用者會提供一份原始資料（可能來自 Word、Excel、PDF、網頁或雜亂純文字）。\n" +
-    "請整理成一份乾淨、結構清楚的繁體中文 Markdown 知識文件：\n" +
-    "• 用 # ／ ## ／ ### 分層標題，重點以「-」條列；\n" +
-    "• 完整保留所有事實與數字（價格、容量、成分、實證數據、話術）一字不改，不得杜撰或補充原文沒有的內容；\n" +
-    "• 移除亂碼、頁碼、重複空白與無意義符號；表格可用 Markdown 表格或條列呈現。\n" +
-    "只輸出整理後的 Markdown 本文，不要加任何說明或前後語。";
-  const out = await llm.generate({
-    systemStable: prompts.ROLE_CORE,
-    systemDynamic: instr,
-    messages: [{ role: "user", content: `檔名：${filename}\n\n原始內容：\n${String(rawText).slice(0, 24000)}` }],
-    maxTokens: 4000
-  });
-  return toTraditional(typeof out === "string" ? out : String(out || ""));
+    "你是排版助理。把使用者提供的原始資料（可能來自 Word、Excel、PDF、網頁或雜亂純文字）轉成繁體中文 Markdown。\n" +
+    "【最重要的規則：內容一字不刪】\n" +
+    "• 所有句子、段落、數字、清單項目、話術、註解都必須完整保留，輸出內容量應與輸入相當。\n" +
+    "• 嚴禁摘要、濃縮、改寫、合併段落、省略「重複或次要」內容——你沒有資格判斷什麼是次要的。\n" +
+    "• 你唯一可以做的：加上合理的 #/##/### 標題層級、把清單改成「-」條列、把表格資料排成 Markdown 表格、移除亂碼/頁碼/連續空白。\n" +
+    "• 不得杜撰或補充原文沒有的內容。\n" +
+    "• 這是長文件的其中一段時，接續排版即可，不要加開場或結尾語。\n" +
+    "只輸出 Markdown 本文，不要加任何說明。";
+  const chunks = splitForConvert(rawText);
+  const parts = [];
+  for (let i = 0; i < chunks.length; i++) {
+    const out = await llm.generate({
+      systemStable: prompts.ROLE_CORE,
+      systemDynamic: instr,
+      messages: [{
+        role: "user",
+        content: `檔名：${filename}（第 ${i + 1}/${chunks.length} 段）\n\n原始內容：\n${chunks[i]}`
+      }],
+      maxTokens: 12000
+    });
+    parts.push(typeof out === "string" ? out : String(out || ""));
+  }
+  return toTraditional(parts.join("\n\n"));
 }
 
 // 權限閘：need="viewer"|"admin"。回傳角色字串，未通過回 null（並已回應 401/403）。
@@ -997,8 +1051,22 @@ app.post("/api/knowledge/list", async (req, res) => {
 
 app.post("/api/knowledge/get", async (req, res) => {
   if (!gate(req, res, "admin")) return;
-  try { res.json({ filename: req.body.filename, content: await getKnowledge(req.body.filename) }); }
-  catch (e) { res.status(500).json({ error: e.message }); }
+  try {
+    const content = await getKnowledge(req.body.filename);
+    audit("知識庫檢視", req.body.filename, "admin", req);
+    res.json({ filename: req.body.filename, content });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// 前端動作補記稽核（白名單，避免被塞任意內容）
+const CLIENT_AUDIT_ACTIONS = new Set(["匯出優良話術"]);
+app.post("/api/admin/log", (req, res) => {
+  const role = gate(req, res, "admin");
+  if (!role) return;
+  const { action, detail } = req.body || {};
+  if (!CLIENT_AUDIT_ACTIONS.has(action)) return res.status(400).json({ error: "不支援的動作" });
+  audit(action, String(detail || "").slice(0, 200), role, req);
+  res.json({ ok: true });
 });
 
 app.post("/api/knowledge/upload", async (req, res) => {
@@ -1070,7 +1138,15 @@ async function runBackup(trigger, req) {
   if (backupInFlight) return backupInFlight;
   backupInFlight = (async () => {
     const records = readRecords();
-    const payload = { savedAt: new Date().toISOString(), records, audit: readAudit(), submissions: readSubmissions() };
+    // 備份瘦身：演練紀錄不含逐字稿（完整逐字稿以 Google Sheet 歸檔為準），並設筆數上限；
+    // 指定演練繳交保留逐字稿（後續勾選匯出／收錄需要），同樣設上限。
+    const payload = {
+      savedAt: new Date().toISOString(),
+      note: "records 為摘要（不含逐字稿），完整資料以 Google Sheet 歸檔為準",
+      records: records.slice(-500).map(({ transcript, ...r }) => r),
+      audit: readAudit(),
+      submissions: readSubmissions().slice(-200)
+    };
     const r = await ghSaveFile(BACKUP_PATH, JSON.stringify(payload, null, 2), `資料備份：${records.length} 筆演練紀錄（${trigger}）`);
     lastBackupAt = Date.now();
     audit("資料備份", `${trigger}，${records.length} 筆`, "admin", req);
@@ -1160,15 +1236,17 @@ app.post("/api/admin/roster", async (req, res) => {
     : null;
   if (!roster || !roster.length) return res.status(400).json({ error: "名單不可為空" });
   try {
-    const before = (config.roster || []).length;
+    const before = config.roster || [];
+    const added = roster.filter((n) => !before.includes(n));
+    const removed = before.filter((n) => !roster.includes(n));
     config.roster = roster;
     const json = JSON.stringify(config, null, 2);
     try { fs.writeFileSync(path.join(__dirname, "config", "trainer-config.json"), json); } catch {}
     if (useGitHub()) {
       await backupBeforeRedeploy();
-      await ghSaveFile("config/trainer-config.json", json, `系統管理：更新業務名單（${before} → ${roster.length} 人，後台）`);
+      await ghSaveFile("config/trainer-config.json", json, `系統管理：更新業務名單（${before.length} → ${roster.length} 人，後台）`);
     }
-    audit("名單更新", `${before} → ${roster.length} 人`, "admin", req);
+    audit("名單更新", `${before.length} → ${roster.length} 人${added.length ? `，新增：${added.join("、")}` : ""}${removed.length ? `，移除：${removed.join("、")}` : ""}`, "admin", req);
     res.json({ ok: true, roster, persisted: useGitHub() });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
@@ -1406,14 +1484,29 @@ app.post("/api/admin/submission/approve", async (req, res) => {
 
 app.post("/api/quiz/next", featureGate("quiz", "隨機測驗"), async (req, res) => {
   try {
-    const { module, asked } = req.body;
+    const { module, asked, files, direction } = req.body;
     if (!llm) return res.json(DEMO_QUIZ_Q);
+    const isCustom = module === "custom";
+    const customFiles = isCustom && Array.isArray(files)
+      ? files.filter((f) => (KNOWLEDGE.files || []).includes(f))
+      : null;
+    if (isCustom && (!customFiles || !customFiles.length)) {
+      return res.status(400).json({ error: "自訂範圍至少要勾選一個知識檔" });
+    }
     const mod = config.quizModules.find((x) => x.id === module);
     const result = await callGen(
-      prompts.buildQuizNext(module, asked || []),
+      prompts.buildQuizNext(module, asked || [], { files: customFiles, direction }),
       [{ role: "user", content: "請出下一題。" }],
       QUIZ_Q_SCHEMA,
-      { maxTokens: 2000, contextQuery: mod ? mod.scope : "品牌 產品 療程 話術", retrieveOpts: { limit: 3, minScore: 1 } }
+      {
+        maxTokens: 2000,
+        contextQuery: isCustom
+          ? (direction && direction.trim() ? direction : "產品 價格 容量 特色 話術 重點 注意事項")
+          : (mod ? mod.scope : "品牌 產品 療程 話術"),
+        retrieveOpts: isCustom
+          ? { limit: 3, minScore: 0, files: customFiles }
+          : { limit: 3, minScore: 1 }
+      }
     );
     res.json(result);
   } catch (err) {

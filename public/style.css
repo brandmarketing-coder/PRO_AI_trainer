@@ -535,6 +535,23 @@ input:focus, textarea:focus {
 }
 .chip:active { background: var(--mist); }
 
+/* ── 測驗自訂範圍 ── */
+.qc-files { display: flex; flex-direction: column; }
+.qc-file {
+  display: flex; align-items: center; gap: 10px;
+  padding: 9px 2px;
+  font-size: 14px; color: var(--ink);
+  border-bottom: 1px solid var(--stone-line);
+  cursor: pointer;
+}
+.qc-file:last-child { border-bottom: none; }
+.qc-file input { width: 16px; height: 16px; accent-color: var(--sage-dark); cursor: pointer; flex-shrink: 0; }
+#quiz-custom-direction {
+  width: 100%; border: 1.5px solid var(--stone-line); border-radius: var(--radius-sm);
+  padding: 12px 14px; font-size: 15px; font-family: inherit; background: #fff;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
 /* ── 測驗 ── */
 .quiz-progress { font-size: 13px; color: var(--stone); font-weight: 700; margin-bottom: 12px; }
 .quiz-question { min-height: 90px; }

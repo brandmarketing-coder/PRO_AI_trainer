@@ -217,13 +217,8 @@ async function buildDocx(data) {
   children.push(heading("八、可改善方向"));
   ev.improvements.forEach((m) => children.push(p(`• ${m}`)));
 
-  // 九、建議改寫
-  children.push(heading("九、建議改寫"));
-  children.push(p("可以這樣說：", { bold: true }));
-  children.push(p(`「${ev.rewrite_example}」`));
-
-  // 十、整體評估
-  children.push(heading("十、整體評估"));
+  // 九、整體評估
+  children.push(heading("九、整體評估"));
   children.push(
     table([
       headerRow(["項目", "評估內容"], [20, 80]),
@@ -233,8 +228,8 @@ async function buildDocx(data) {
     ])
   );
 
-  // 十一、下一步訓練建議
-  children.push(heading("十一、下一步訓練建議"));
+  // 十、下一步訓練建議
+  children.push(heading("十、下一步訓練建議"));
   children.push(
     table([
       headerRow(["訓練方向", "建議做法"], [24, 76]),
@@ -538,18 +533,14 @@ async function buildPdf(data) {
   heading("八、可改善方向");
   ev.improvements.forEach((m) => body(`• ${m}`));
 
-  heading("九、建議改寫");
-  doc.font("zh-bold").fontSize(10).fillColor("#222").text("可以這樣說：", 56);
-  body(`「${ev.rewrite_example}」`);
-
-  heading("十、整體評估");
+  heading("九、整體評估");
   pdfTable(["項目", "評估內容"], [
     ["整體層級", ev.level_note],
     ["總分", `${ev.total_score}／100`],
     ["整體判斷", ev.overall_judgment]
   ], [2, 8]);
 
-  heading("十一、下一步訓練建議");
+  heading("十、下一步訓練建議");
   pdfTable(["訓練方向", "建議做法"], ev.next_steps.map((s) => [s.direction, s.method]), [2.4, 7.6]);
 
   doc.moveDown(1);

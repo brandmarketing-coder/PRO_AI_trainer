@@ -23,6 +23,8 @@ const state = {
   quizCorrect: 0,
   quizPrefetch: null,
   quizItems: [],   // 逐題作答歷史（供產出測驗報告）
+  quizFiles: null,     // 自訂範圍：勾選的知識檔
+  quizDirection: "",   // 自訂範圍：出題方向
   // 指定演練
   assignActive: [],   // 開放中的題目
   assignCurrent: null,
@@ -505,7 +507,6 @@ function renderResult() {
     .map((c) => `<li class="${c.done ? "cp-done" : "cp-miss"}">${c.done ? "✓" : "✗"} ${esc(c.name)}${c.note ? `（${esc(c.note)}）` : ""}</li>`)
     .join("");
   $("result-improvements").innerHTML = ev.improvements.map((m) => `<li>${esc(m)}</li>`).join("");
-  $("result-rewrite").textContent = `「${ev.rewrite_example}」`;
   $("result-overall").textContent = ev.overall_judgment;
   $("result-steps").innerHTML = ev.next_steps
     .map((s) => `<tr><td>${esc(s.direction)}</td><td>${esc(s.method)}</td></tr>`)
@@ -721,11 +722,46 @@ function renderQuizModules() {
     btn.onclick = () => startQuiz(m.id, m.name);
     wrap.appendChild(btn);
   });
+  // 自訂範圍：勾選知識檔＋出題方向
+  const custom = document.createElement("button");
+  custom.className = "option-card";
+  custom.innerHTML =
+    `<span class="o-icon">🗂</span>` +
+    `<span class="o-body"><span class="o-name">自訂範圍</span>` +
+    `<span class="o-desc">勾選知識庫檔案，可再指定出題方向</span></span>`;
+  custom.onclick = () => {
+    const panel = $("quiz-custom-panel");
+    panel.classList.toggle("hidden");
+    if (!panel.classList.contains("hidden")) {
+      renderQuizCustomFiles();
+      panel.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  };
+  wrap.appendChild(custom);
 }
+
+function renderQuizCustomFiles() {
+  const box = $("quiz-custom-files");
+  const files = CONFIG.knowledgeFiles || [];
+  if (!files.length) { box.innerHTML = `<p class="hint">目前沒有知識檔。</p>`; return; }
+  box.innerHTML = files.map((f) =>
+    `<label class="qc-file"><input type="checkbox" value="${esc(f)}" /><span>${esc(f.replace(/\.md$/i, ""))}</span></label>`
+  ).join("");
+}
+
+$("btn-quiz-custom-start").onclick = () => {
+  const files = [...document.querySelectorAll("#quiz-custom-files input:checked")].map((i) => i.value);
+  if (!files.length) { toast("至少勾選一個知識檔"); return; }
+  state.quizFiles = files;
+  state.quizDirection = $("quiz-custom-direction").value.trim();
+  startQuiz("custom", "自訂範圍");
+};
 
 function startQuiz(moduleId, moduleLabel) {
   const qn = $("quiz-name").value.trim();
   if (qn) state.name = qn;
+  if (moduleId !== "custom") { state.quizFiles = null; state.quizDirection = ""; }
+  $("quiz-custom-panel").classList.add("hidden");
   state.quizModule = moduleId;
   state.quizModuleLabel = moduleLabel;
   state.quizAsked = [];
@@ -738,7 +774,12 @@ function startQuiz(moduleId, moduleLabel) {
 }
 
 function fetchQuestion() {
-  return api("/api/quiz/next", { module: state.quizModule, asked: state.quizAsked });
+  return api("/api/quiz/next", {
+    module: state.quizModule,
+    asked: state.quizAsked,
+    files: state.quizModule === "custom" ? state.quizFiles : undefined,
+    direction: state.quizModule === "custom" ? state.quizDirection : undefined
+  });
 }
 
 async function loadQuestion() {
@@ -1212,6 +1253,7 @@ function wireSubCards() {
         `${i + 1}. ${s.name}（${fmtDateTime(s.date)}，${s.total_score}分／${s.level}）\n${"-".repeat(24)}\n${s.transcript.trim()}\n`
       ).join("\n");
     triggerDownload(new Blob([text], { type: "text/plain;charset=utf-8" }), `優良話術_${todayStr().replaceAll("/", "")}.txt`);
+    api("/api/admin/log", { password: reportPw, action: "匯出優良話術", detail: `${picked.length} 段／${currentSubsAssignment ? currentSubsAssignment.title : ""}` }).catch(() => {});
   };
   const collectBtn = $("btn-subs-collect");
   if (collectBtn) collectBtn.onclick = () => {
