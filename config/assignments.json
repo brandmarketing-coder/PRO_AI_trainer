@@ -1,3 +1,13 @@
 {
-  "assignments": []
+  "assignments": [
+    {
+      "id": "mrvgybvk97593",
+      "createdAt": "2026-07-22T02:34:20.192Z",
+      "title": "模擬話術訓練 | 精華油升級版銷售說明",
+      "brief": "123",
+      "focus": "12222",
+      "minutes": 5,
+      "active": true
+    }
+  ]
 }
