@@ -218,7 +218,7 @@ async function sendToSheet(sheetName, row) {
     });
     const body = await r.text().catch(() => "");
     const ok = r.ok && !/"ok"\s*:\s*false/.test(body);
-    if (ok) { console.log(`[sheet] 已寫入 Google Sheet「${sheetName}」`); return { sent: true, via: "apps_script", status: r.status }; }
+    if (ok) { console.log(`[sheet] 已寫入 Google Sheet「${sheetName}」：${body.slice(0, 80)}`); return { sent: true, via: "apps_script", status: r.status, response: body.slice(0, 120) }; }
     console.warn(`[sheet] Apps Script 回應異常 HTTP ${r.status}：${body.slice(0, 120)}`);
     return { sent: false, via: "apps_script", status: r.status, reason: body.slice(0, 120) || `HTTP ${r.status}` };
   } catch (e) {
@@ -1544,14 +1544,14 @@ app.post("/api/quiz/grade", async (req, res) => {
 
 
 // 測驗結束歸檔：前端在成績頁產生時回報，寫進 Google Sheet「測驗成績」分頁（非阻塞、失敗不影響使用者）
-app.post("/api/quiz/record", (req, res) => {
+app.post("/api/quiz/record", async (req, res) => {
   try {
-    const { name, moduleLabel, total, correct, items } = req.body || {};
+    const { name, moduleLabel, total, correct, items, debug_archive } = req.body || {};
     if (!total) return res.json({ ok: true, skipped: true });
     const summary = Array.isArray(items)
       ? items.map((it, i) => `${i + 1}.${it.correct ? "✓" : "✗"} ${String(it.question || "").slice(0, 40)}`).join("\n")
       : "";
-    sendToSheet("測驗成績", {
+    const send = sendToSheet("測驗成績", {
       "時間": taipeiTime(),
       "業務": (name || "").trim() || "未填寫",
       "測驗範圍": moduleLabel || "",
@@ -1559,7 +1559,9 @@ app.post("/api/quiz/record", (req, res) => {
       "答對": correct != null ? correct : "",
       "正確率": total ? Math.round(((correct || 0) / total) * 100) + "%" : "",
       "逐題摘要": summary
-    }).catch(() => {});
+    });
+    if (debug_archive) return res.json({ ok: true, archive: await send });   // 排查用：等結果並回報
+    send.catch(() => {});
     res.json({ ok: true });
   } catch (err) {
     res.json({ ok: true });   // 歸檔失敗不影響使用者
