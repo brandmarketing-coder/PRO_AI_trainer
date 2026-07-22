@@ -106,7 +106,6 @@ let FAQ = [];
 // ⚠️ Render 免費方案磁碟是暫存的，重新部署／休眠會清空；長期保存請靠 N8N_WEBHOOK_URL 串到 Google Sheet。
 const REPORT_PASSWORD = process.env.REPORT_PASSWORD || "12890464";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "";
-const SUPERADMIN_PASSWORD = process.env.SUPERADMIN_PASSWORD || "";   // 蔡總（最高權限，核可優良話術收錄）
 const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL || "";
 const APPS_SCRIPT_URL = process.env.APPS_SCRIPT_URL || "";   // App 直接把演練紀錄寫進 Google Sheet（免 n8n）
 const DATA_DIR = path.join(__dirname, "data");
@@ -114,17 +113,14 @@ const RECORDS_FILE = path.join(DATA_DIR, "records.json");
 const AUDIT_FILE = path.join(DATA_DIR, "audit.json");
 const SUBMISSIONS_FILE = path.join(DATA_DIR, "submissions.json");   // 指定演練繳交（納入備份）
 
-// ── 權限：三級密碼 ──
+// ── 權限：兩級密碼 ──
 // REPORT_PASSWORD＝主管（viewer，只看分數彙整）
-// ADMIN_PASSWORD＝管理員（admin，知識庫/系統管理/備份/出題/標記優良候選）
-// SUPERADMIN_PASSWORD＝蔡總（super，最高權限，核可優良話術收錄回知識庫）
-// 向下相容：未設更高層密碼時，主管密碼即擁有當前最高權限。
-const RANK = { viewer: 1, admin: 2, super: 3 };
+// ADMIN_PASSWORD＝管理員（admin，知識庫/系統管理/備份/出題/優良話術匯出與收錄）
+// 未設定 ADMIN_PASSWORD 時，主管密碼直接視為管理員（與舊版相容，交接後請務必設定）。
 function roleOf(password) {
   if (!password) return null;
-  if (SUPERADMIN_PASSWORD && password === SUPERADMIN_PASSWORD) return "super";
   if (ADMIN_PASSWORD && password === ADMIN_PASSWORD) return "admin";
-  if (password === REPORT_PASSWORD) return (ADMIN_PASSWORD || SUPERADMIN_PASSWORD) ? "viewer" : "admin";
+  if (password === REPORT_PASSWORD) return ADMIN_PASSWORD ? "viewer" : "admin";
   return null;
 }
 
@@ -981,15 +977,12 @@ async function convertToMarkdown(rawText, filename) {
   return toTraditional(typeof out === "string" ? out : String(out || ""));
 }
 
-// 權限閘：need="viewer"|"admin"|"super"。回傳角色字串，未通過回 null（並已回應 401/403）。
-// 特例：要求 super 但未設定蔡總密碼時，退回 admin 即可通過（避免無人能核可）。
+// 權限閘：need="viewer"|"admin"。回傳角色字串，未通過回 null（並已回應 401/403）。
 const gate = (req, res, need = "viewer") => {
   const role = roleOf((req.body || {}).password);
   if (!role) { res.status(401).json({ error: "密碼錯誤" }); return null; }
-  let needRank = RANK[need] || 1;
-  if (need === "super" && !SUPERADMIN_PASSWORD) needRank = RANK.admin;
-  if (RANK[role] < needRank) {
-    res.status(403).json({ error: need === "super" ? "權限不足：此功能需要最高權限（蔡總）核可" : "權限不足：此功能需要管理員密碼" });
+  if (need === "admin" && role !== "admin") {
+    res.status(403).json({ error: "權限不足：此功能需要管理員密碼" });
     return null;
   }
   return role;
@@ -1133,8 +1126,7 @@ app.post("/api/admin/overview", (req, res) => {
       archive: APPS_SCRIPT_URL ? "apps_script" : N8N_WEBHOOK_URL ? "n8n" : "none",
       auto: "每日自動備份一次；知識庫／名單／開關變更時也會先自動備份"
     },
-    admin_password_set: !!ADMIN_PASSWORD,
-    super_password_set: !!SUPERADMIN_PASSWORD
+    admin_password_set: !!ADMIN_PASSWORD
   });
 });
 
@@ -1386,9 +1378,9 @@ app.post("/api/admin/submission/nominate", (req, res) => {
   res.json({ ok: true, nominated: s.nominated });
 });
 
-// ── 兩段式收錄：② 蔡總（super）核可 → 收錄進知識庫 ──
+// ── 收錄：管理員核可 → 收錄進知識庫（流程：後台勾選優良 → 匯出給高層過目 → 回來批次收錄）──
 app.post("/api/admin/submission/approve", async (req, res) => {
-  const role = gate(req, res, "super");
+  const role = gate(req, res, "admin");
   if (!role) return;
   const { id } = req.body || {};
   const list = readSubmissions();

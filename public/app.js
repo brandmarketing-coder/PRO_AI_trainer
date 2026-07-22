@@ -991,19 +991,46 @@ $("btn-assign-again").onclick = () => { renderAssignList(); go("assign-list"); }
 $("btn-assign-home").onclick = () => go("home");
 
 // ═════════════════ 報表後台（主管＝分數彙整；管理員＝全部分頁） ═════════════════
-let reportPw = "";   // 解鎖後暫存密碼，供後台 API 沿用（僅存在記憶體、離開報表即清）
+let reportPw = "";   // 解鎖後暫存密碼，供後台 API 沿用
 let reportRole = ""; // "viewer"（主管）或 "admin"（管理員）
+const REPORT_PW_KEY = "oright-report-pw";   // 記在 sessionStorage：同分頁有效、關閉分頁即清除
 
-$("btn-report").onclick = () => {
-  // 每次進入都回到鎖定狀態，需重新輸入密碼
+function showReportLock() {
+  reportPw = "";
+  reportRole = "";
+  try { sessionStorage.removeItem(REPORT_PW_KEY); } catch {}
   $("report-lock").classList.remove("hidden");
   $("report-content").classList.add("hidden");
   $("report-pw").value = "";
-  reportPw = "";
-  reportRole = "";
   document.querySelectorAll(".admin-tab").forEach((t) => t.classList.add("hidden"));
+}
+
+// 用密碼解鎖（手動輸入或 sessionStorage 記住的都走這裡，每次都經伺服器驗證）
+async function unlockWith(pw, { silent = false } = {}) {
+  try {
+    const data = await api("/api/report/dashboard", { password: pw });
+    reportPw = pw;
+    reportRole = data.role || "admin";
+    try { sessionStorage.setItem(REPORT_PW_KEY, pw); } catch {}
+    document.querySelectorAll(".admin-tab").forEach((t) => t.classList.toggle("hidden", reportRole !== "admin"));
+    renderDashboard(data);
+    $("report-lock").classList.add("hidden");
+    $("report-content").classList.remove("hidden");
+    return true;
+  } catch (err) {
+    try { sessionStorage.removeItem(REPORT_PW_KEY); } catch {}
+    if (!silent) toast(err.message === "密碼錯誤" ? "密碼錯誤，請再試一次" : ("讀取失敗：" + err.message));
+    return false;
+  }
+}
+
+$("btn-report").onclick = async () => {
   switchReportTab("scores");
   go("report");
+  // 這個分頁已經登入過就直接進（仍會重新向伺服器驗證一次）；沒有才要求輸入密碼
+  const saved = (() => { try { return sessionStorage.getItem(REPORT_PW_KEY) || ""; } catch { return ""; } })();
+  if (saved && await unlockWith(saved, { silent: true })) return;
+  showReportLock();
   $("report-pw").focus();
 };
 
@@ -1013,24 +1040,13 @@ async function unlockReport() {
   const btn = $("btn-report-unlock");
   btn.disabled = true;
   btn.textContent = "驗證中…";
-  try {
-    const data = await api("/api/report/dashboard", { password: pw });
-    reportPw = pw;
-    reportRole = data.role || "admin";
-    const isAdmin = reportRole === "admin" || reportRole === "super";
-    document.querySelectorAll(".admin-tab").forEach((t) => t.classList.toggle("hidden", !isAdmin));
-    renderDashboard(data);
-    $("report-lock").classList.add("hidden");
-    $("report-content").classList.remove("hidden");
-  } catch (err) {
-    toast(err.message === "密碼錯誤" ? "密碼錯誤，請再試一次" : ("讀取失敗：" + err.message));
-  } finally {
-    btn.disabled = false;
-    btn.textContent = "進入報表";
-  }
+  await unlockWith(pw);
+  btn.disabled = false;
+  btn.textContent = "進入報表";
 }
 $("btn-report-unlock").onclick = unlockReport;
 $("report-pw").addEventListener("keydown", (e) => { if (e.key === "Enter") unlockReport(); });
+$("btn-report-logout").onclick = () => { showReportLock(); toast("已登出報表"); $("report-pw").focus(); };
 
 // ── 報表分頁切換 ──
 const REPORT_TABS = ["scores", "assign", "kb", "admin", "backup"];
@@ -1142,25 +1158,36 @@ function loadAssignSubs(assignmentId, a) {
   block.scrollIntoView({ behavior: "smooth", block: "start" });
   api("/api/admin/submissions", { password: reportPw, assignmentId }).then((d) => {
     const subs = d.submissions || [];
+    currentSubsList = subs;
     if (!subs.length) { $("asg-subs").innerHTML = `<p class="hint">尚無繳交。</p>`; return; }
-    $("asg-subs").innerHTML = subs.map((s) => renderSubCard(s)).join("");
+    $("asg-subs").innerHTML = subs.map((s) => renderSubCard(s)).join("") + subActionsHtml(subs);
     wireSubCards();
   }).catch((err) => { $("asg-subs").innerHTML = `<p class="hint">讀取失敗：${esc(err.message)}</p>`; });
 }
 
+let currentSubsList = [];   // 目前顯示中的繳交清單（供匯出／批次收錄）
+
 function renderSubCard(s) {
-  const state1 = s.approved ? `<span class="asg-on">已收錄</span>` : s.nominated ? `<span class="asg-nom">優良候選</span>` : "";
+  const state1 = s.approved ? `<span class="asg-on">已收錄</span>` : s.nominated ? `<span class="asg-nom">優良</span>` : "";
+  const check = s.approved
+    ? ""
+    : `<label class="sub-check"><input type="checkbox" data-nominate="${esc(s.id)}" ${s.nominated ? "checked" : ""} /><span>優良</span></label>`;
   return `<div class="sub-card">` +
-    `<div class="sub-head"><span><b>${esc(s.name)}</b>　${s.total_score}分 <span class="lv-badge">${esc(s.level || "")}</span> ${state1}</span>` +
+    `<div class="sub-head"><span>${check}<b>${esc(s.name)}</b>　${s.total_score}分 <span class="lv-badge">${esc(s.level || "")}</span> ${state1}</span>` +
     `<span class="sub-date">${fmtDateTime(s.date)}</span></div>` +
     `<button class="kb-btn sub-view" data-view='${esc(s.id)}'>看逐字稿與評分</button>` +
-    (s.approved ? "" :
-      s.nominated
-        ? `<button class="kb-btn sub-approve" data-approve='${esc(s.id)}'>核可收錄（蔡總）</button>` +
-          `<button class="kb-btn sub-nominate" data-nominate='${esc(s.id)}' data-on="0">取消候選</button>`
-        : `<button class="kb-btn sub-nominate" data-nominate='${esc(s.id)}' data-on="1">標記優良候選</button>`) +
     `<div class="sub-detail hidden" id="subd-${esc(s.id)}"><pre class="sub-transcript">${esc(s.transcript)}</pre></div>` +
     `</div>`;
+}
+
+// 勾選＝標記優良（即存檔）。流程：勾選 → 匯出文字檔給高層過目 → 確認後「將勾選收錄進知識庫」
+function subActionsHtml(subs) {
+  const picked = subs.filter((s) => s.nominated && !s.approved).length;
+  return `<div class="sub-actions">` +
+    `<button id="btn-subs-export" class="btn-outline" ${picked ? "" : "disabled"}>匯出勾選的話術（${picked}）</button>` +
+    `<button id="btn-subs-collect" class="btn-primary" ${picked ? "" : "disabled"}>將勾選收錄進知識庫</button>` +
+    `</div>` +
+    `<p class="hint">勾「優良」即儲存標記 → 「匯出」下載文字檔，整理後在群組或會議給高層過目 → 確認後「收錄」寫進知識庫，AI 之後會參考這些示範。</p>`;
 }
 
 function wireSubCards() {
@@ -1170,21 +1197,40 @@ function wireSubCards() {
     d.classList.toggle("hidden");
     b.textContent = d.classList.contains("hidden") ? "看逐字稿與評分" : "收起";
   });
-  box.querySelectorAll("[data-nominate]").forEach((b) => b.onclick = async () => {
+  box.querySelectorAll("[data-nominate]").forEach((cb) => cb.onchange = async () => {
     try {
-      await api("/api/admin/submission/nominate", { password: reportPw, id: b.dataset.nominate, nominate: b.dataset.on === "1" });
+      await api("/api/admin/submission/nominate", { password: reportPw, id: cb.dataset.nominate, nominate: cb.checked });
       reloadCurrentSubs();
-    } catch (err) { toast(err.message); }
+    } catch (err) { toast(err.message); cb.checked = !cb.checked; }
   });
-  box.querySelectorAll("[data-approve]").forEach((b) => b.onclick = () => {
+  const exportBtn = $("btn-subs-export");
+  if (exportBtn) exportBtn.onclick = () => {
+    const picked = currentSubsList.filter((s) => s.nominated && !s.approved);
+    if (!picked.length) return;
+    const text = `【指定演練優良話術】${currentSubsAssignment ? currentSubsAssignment.title : ""}\n匯出時間：${fmtDateTime(new Date().toISOString())}\n\n` +
+      picked.map((s, i) =>
+        `${i + 1}. ${s.name}（${fmtDateTime(s.date)}，${s.total_score}分／${s.level}）\n${"-".repeat(24)}\n${s.transcript.trim()}\n`
+      ).join("\n");
+    triggerDownload(new Blob([text], { type: "text/plain;charset=utf-8" }), `優良話術_${todayStr().replaceAll("/", "")}.txt`);
+  };
+  const collectBtn = $("btn-subs-collect");
+  if (collectBtn) collectBtn.onclick = () => {
+    const picked = currentSubsList.filter((s) => s.nominated && !s.approved);
+    if (!picked.length) return;
     confirmModal({
-      title: "核可並收錄？", body: "核可後，這段話術會收錄進知識庫「優良話術示範」，供 AI 問答與演練回饋參考。此動作需要最高權限（蔡總）密碼。",
-      okText: "確認核可", cancelText: "取消"
+      title: `收錄 ${picked.length} 段話術？`,
+      body: "收錄後會寫進知識庫「優良話術示範」，供 AI 問答與演練回饋參考。建議先匯出給高層過目確認後再收錄。",
+      okText: "確認收錄", cancelText: "取消"
     }, async () => {
-      try { await api("/api/admin/submission/approve", { password: reportPw, id: b.dataset.approve }); toast("✓ 已核可並收錄進知識庫"); reloadCurrentSubs(); }
-      catch (err) { toast(err.message); }
+      let ok = 0, fail = 0;
+      for (const s of picked) {
+        try { await api("/api/admin/submission/approve", { password: reportPw, id: s.id }); ok++; }
+        catch { fail++; }
+      }
+      toast(fail ? `已收錄 ${ok} 段，${fail} 段失敗` : `✓ 已收錄 ${ok} 段進知識庫`);
+      reloadCurrentSubs();
     });
-  });
+  };
 }
 
 function reloadCurrentSubs() {
@@ -1550,7 +1596,7 @@ function applyFlags() {
     if (key) card.classList.toggle("hidden", flags[key] === false);
   });
   const a = $("announcement");
-  a.textContent = flags.announcement ? "📢 " + flags.announcement : "";
+  a.textContent = flags.announcement || "";
   a.classList.toggle("hidden", !flags.announcement);
 }
 

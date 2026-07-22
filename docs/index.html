@@ -30,12 +30,14 @@
     </div>
   </header>
 
+  <!-- 全站公告（後台「系統管理」設定；黏在 Header 下方一整條） -->
+  <div id="announcement" class="announce hidden"></div>
+
   <div id="screens" class="screens">
 
     <!-- 首頁 -->
     <main id="screen-home" class="screen scroll">
       <div class="container">
-        <div id="announcement" class="announce hidden"></div>
         <div class="hero">
           <p class="hero-eyebrow">O'right｜PRO 業務教育教練</p>
           <h1>嗨，我是 Jenny 老師</h1>
@@ -43,7 +45,9 @@
         </div>
         <div class="feature-list">
           <button class="feature-card feature-assign hidden" data-goto="assign-list">
-            <span class="f-icon">🎯</span>
+            <span class="f-icon">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8.2" stroke="currentColor" stroke-width="1.7"/><circle cx="12" cy="12" r="4.2" stroke="currentColor" stroke-width="1.7"/><circle cx="12" cy="12" r="1.3" fill="currentColor"/></svg>
+            </span>
             <span class="f-body">
               <span class="f-name">指定演練 <span id="assign-badge" class="f-badge hidden"></span></span>
               <span class="f-desc">主管出的本週題目，錄音繳交、AI 依重點評分</span>
@@ -51,7 +55,9 @@
             <span class="f-arrow">›</span>
           </button>
           <button class="feature-card" data-goto="rp-theme">
-            <span class="f-icon">🎭</span>
+            <span class="f-icon">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M4 5.6h11.2a1.6 1.6 0 011.6 1.6v5.2a1.6 1.6 0 01-1.6 1.6H9.4L5.8 17v-3H4a1.6 1.6 0 01-1.6-1.6V7.2A1.6 1.6 0 014 5.6z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M19.2 9.4h.8A1.6 1.6 0 0121.6 11v4.4a1.6 1.6 0 01-1.6 1.6h-1v2.4l-2.9-2.4h-3" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></svg>
+            </span>
             <span class="f-body">
               <span class="f-name">情境演練</span>
               <span class="f-desc">和 AI 店長實戰對練，結束產出訓練報告</span>
@@ -59,7 +65,9 @@
             <span class="f-arrow">›</span>
           </button>
           <button class="feature-card" data-goto="qa">
-            <span class="f-icon">📚</span>
+            <span class="f-icon">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M12 6.2C10.6 4.9 8.7 4.3 6.3 4.3c-1 0-1.9.1-2.7.4v13.6c.8-.3 1.7-.4 2.7-.4 2.4 0 4.3.6 5.7 1.9 1.4-1.3 3.3-1.9 5.7-1.9 1 0 1.9.1 2.7.4V4.7c-.8-.3-1.7-.4-2.7-.4-2.4 0-4.3.6-5.7 1.9z" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 6.2v13.6" stroke="currentColor" stroke-width="1.7"/></svg>
+            </span>
             <span class="f-body">
               <span class="f-name">知識問答</span>
               <span class="f-desc">產品、價格、綠色關鍵、話術，隨問隨查</span>
@@ -67,7 +75,9 @@
             <span class="f-arrow">›</span>
           </button>
           <button class="feature-card" data-goto="quiz-setup">
-            <span class="f-icon">📝</span>
+            <span class="f-icon">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none"><rect x="4.2" y="3.4" width="15.6" height="17.2" rx="1.6" stroke="currentColor" stroke-width="1.7"/><path d="M8 8.4l1.3 1.3 2.3-2.4M8 13.2l1.3 1.3 2.3-2.4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/><path d="M14.4 9.2h2.4M14.4 14h2.4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+            </span>
             <span class="f-body">
               <span class="f-name">隨機測驗</span>
               <span class="f-desc">七大模組逐題考核，即問即評</span>
@@ -365,12 +375,15 @@
         </div>
         <!-- 已解鎖：內容 -->
         <div id="report-content" class="hidden">
-          <div class="report-tabs">
-            <button id="tab-scores" class="rtab active">分數彙整</button>
-            <button id="tab-assign" class="rtab admin-tab hidden">指定演練</button>
-            <button id="tab-kb" class="rtab admin-tab hidden">知識庫管理</button>
-            <button id="tab-admin" class="rtab admin-tab hidden">系統管理</button>
-            <button id="tab-backup" class="rtab admin-tab hidden">資料備份</button>
+          <div class="report-topbar">
+            <div class="report-tabs">
+              <button id="tab-scores" class="rtab active">分數彙整</button>
+              <button id="tab-assign" class="rtab admin-tab hidden">指定演練</button>
+              <button id="tab-kb" class="rtab admin-tab hidden">知識庫管理</button>
+              <button id="tab-admin" class="rtab admin-tab hidden">系統管理</button>
+              <button id="tab-backup" class="rtab admin-tab hidden">資料備份</button>
+            </div>
+            <button id="btn-report-logout" class="report-logout">登出</button>
           </div>
 
           <!-- 分頁一：分數彙整 -->
