@@ -23,6 +23,9 @@ const state = {
   quizCorrect: 0,
   quizPrefetch: null,
   quizItems: [],   // 逐題作答歷史（供產出測驗報告）
+  // 指定演練
+  assignActive: [],   // 開放中的題目
+  assignCurrent: null,
   // 全域
   busy: false
 };
@@ -91,6 +94,9 @@ const SCREEN_META = {
   "quiz-setup":  { title: "隨機測驗", back: "home" },
   "quiz-play":   { title: "隨機測驗", back: "quiz-setup" },
   "quiz-result": { title: "測驗成績", back: "home" },
+  "assign-list":   { title: "指定演練", back: "home" },
+  "assign-do":     { title: "指定演練", back: "assign-list" },
+  "assign-result": { title: "演練成績", back: "home" },
   "report":      { title: "報表", back: "home" }
 };
 const SCREEN_IDS = Object.keys(SCREEN_META);
@@ -133,6 +139,7 @@ $("nav-back").onclick = () => {
 document.querySelectorAll(".feature-card").forEach((btn) => {
   btn.onclick = () => {
     if (btn.dataset.goto === "qa") resetQa();
+    if (btn.dataset.goto === "assign-list") renderAssignList();
     go(btn.dataset.goto);
   };
 });
@@ -866,6 +873,111 @@ $("btn-quiz-report").onclick = async (e) => {
   }
 };
 
+// ═════════════════ 指定演練（業務：看題→錄/傳音檔→轉寫→評分） ═════════════════
+const MARK_CLASS = (m) => (m === "◎" ? "mk-good" : m === "○" ? "mk-ok" : "mk-weak");
+
+function renderAssignList() {
+  const wrap = $("assign-list");
+  wrap.innerHTML = `<p class="hint">載入中…</p>`;
+  api("/api/assignments/active").then((d) => {
+    state.assignActive = d.assignments || [];
+    if (!state.assignActive.length) {
+      wrap.innerHTML = `<p class="hint">目前沒有開放中的指定演練。等主管出題後再來看看。</p>`;
+      return;
+    }
+    wrap.innerHTML = "";
+    state.assignActive.forEach((a) => {
+      const btn = document.createElement("button");
+      btn.className = "option-card";
+      btn.innerHTML =
+        `<span class="o-icon">🎯</span>` +
+        `<span class="o-body"><span class="o-name">${esc(a.title)}</span>` +
+        `<span class="o-desc">${esc((a.brief || "").slice(0, 60))}${(a.brief || "").length > 60 ? "…" : ""}　·　建議 ${a.minutes || 5} 分鐘</span></span>`;
+      btn.onclick = () => startAssignment(a);
+      wrap.appendChild(btn);
+    });
+  }).catch((err) => { wrap.innerHTML = `<p class="hint">讀取失敗：${esc(err.message)}</p>`; });
+}
+
+function startAssignment(a) {
+  state.assignCurrent = a;
+  $("assign-do-title").textContent = a.title;
+  $("assign-do-meta").textContent = `建議演練時間 ${a.minutes || 5} 分鐘`;
+  $("assign-do-brief").textContent = a.brief || "";
+  $("assign-name").value = state.name || "";
+  $("assign-transcript").value = "";
+  $("assign-transcribe-msg").textContent = "";
+  $("assign-audio").value = "";
+  go("assign-do");
+}
+
+// 音檔上傳 → base64 → 後端 Whisper 轉逐字稿
+$("assign-audio").onchange = async () => {
+  const file = $("assign-audio").files[0];
+  if (!file) return;
+  if (file.size > 25 * 1024 * 1024) { toast("音檔超過 25MB，請壓縮或縮短"); return; }
+  const box = $("assign-upload-box");
+  const msg = $("assign-transcribe-msg");
+  box.classList.add("uploading");
+  msg.textContent = "🎧 轉寫中…（音檔越長越久，請稍候）";
+  try {
+    const b64 = await new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(r.result);
+      r.onerror = reject;
+      r.readAsDataURL(file);
+    });
+    const d = await api("/api/transcribe", { audio: b64, filename: file.name });
+    const ta = $("assign-transcript");
+    ta.value = (ta.value ? ta.value + "\n" : "") + (d.transcript || "");
+    autosize(ta);
+    msg.textContent = "✓ 已轉成逐字稿，請確認內容（可修正錯字）後送出評分。";
+  } catch (err) {
+    msg.textContent = "轉寫失敗：" + err.message;
+  } finally {
+    box.classList.remove("uploading");
+  }
+};
+
+$("btn-assign-submit").onclick = async (e) => {
+  const name = $("assign-name").value.trim();
+  const transcript = $("assign-transcript").value.trim();
+  if (!name) { toast("請填寫姓名"); return; }
+  if (!transcript) { toast("請先上傳音檔或輸入逐字稿"); return; }
+  state.name = name;
+  const btn = e.currentTarget;
+  btn.disabled = true; btn.textContent = "評分中…";
+  try {
+    const d = await api("/api/assignment/submit", {
+      assignmentId: state.assignCurrent.id, name, transcript
+    });
+    renderAssignResult(d.evaluation);
+    go("assign-result");
+  } catch (err) {
+    toast(err.message);
+  } finally {
+    btn.disabled = false; btn.textContent = "送出評分";
+  }
+};
+
+function renderAssignResult(ev) {
+  $("assign-result-meta").textContent = `${state.name}｜${state.assignCurrent.title}｜${todayStr()}`;
+  $("assign-result-total").innerHTML = `${ev.total_score} 分<span class="level-badge">${esc(ev.level || "")}</span>`;
+  $("assign-result-criteria").innerHTML = (ev.criteria_scores || []).map((c) =>
+    `<div class="score-item"><div class="sc-head"><span>${esc(c.point)}</span><span class="${MARK_CLASS(c.mark)}">${c.mark}</span></div>` +
+    `<div class="sc-comment">${esc(c.comment)}</div></div>`
+  ).join("") || `<p class="hint">—</p>`;
+  $("assign-result-constructs").innerHTML = (ev.construct_scores || []).map((c) =>
+    `<div class="score-item"><div class="sc-head"><span>${esc(c.name)}</span><span><span class="${MARK_CLASS(c.mark)}">${c.mark}</span>　${c.score}/20</span></div></div>`
+  ).join("") || `<p class="hint">—</p>`;
+  $("assign-result-strengths").innerHTML = (ev.strengths || []).map((s) => `<li>${esc(s)}</li>`).join("") || `<li class="hint">—</li>`;
+  $("assign-result-improvements").innerHTML = (ev.improvements || []).map((s) => `<li>${esc(s)}</li>`).join("") || `<li class="hint">—</li>`;
+  $("assign-result-overall").textContent = ev.overall || "";
+}
+
+$("btn-assign-again").onclick = () => { renderAssignList(); go("assign-list"); };
+$("btn-assign-home").onclick = () => go("home");
+
 // ═════════════════ 報表後台（主管＝分數彙整；管理員＝全部分頁） ═════════════════
 let reportPw = "";   // 解鎖後暫存密碼，供後台 API 沿用（僅存在記憶體、離開報表即清）
 let reportRole = ""; // "viewer"（主管）或 "admin"（管理員）
@@ -893,7 +1005,8 @@ async function unlockReport() {
     const data = await api("/api/report/dashboard", { password: pw });
     reportPw = pw;
     reportRole = data.role || "admin";
-    document.querySelectorAll(".admin-tab").forEach((t) => t.classList.toggle("hidden", reportRole !== "admin"));
+    const isAdmin = reportRole === "admin" || reportRole === "super";
+    document.querySelectorAll(".admin-tab").forEach((t) => t.classList.toggle("hidden", !isAdmin));
     renderDashboard(data);
     $("report-lock").classList.add("hidden");
     $("report-content").classList.remove("hidden");
@@ -908,17 +1021,162 @@ $("btn-report-unlock").onclick = unlockReport;
 $("report-pw").addEventListener("keydown", (e) => { if (e.key === "Enter") unlockReport(); });
 
 // ── 報表分頁切換 ──
-const REPORT_TABS = ["scores", "kb", "admin", "backup"];
+const REPORT_TABS = ["scores", "assign", "kb", "admin", "backup"];
 function switchReportTab(which) {
   REPORT_TABS.forEach((t) => {
     $("tab-" + t).classList.toggle("active", t === which);
     $("pane-" + t).classList.toggle("hidden", t !== which);
   });
+  if (which === "assign") loadAssignAdmin();
   if (which === "kb") loadKbList();
   if (which === "admin") loadAdmin();
   if (which === "backup") loadBackup();
 }
 REPORT_TABS.forEach((t) => { $("tab-" + t).onclick = () => switchReportTab(t); });
+
+// ── 指定演練（後台：出題／檢視繳交／核可優良話術）──
+function loadAssignAdmin() {
+  const box = $("asg-list");
+  box.innerHTML = `<p class="hint">載入中…</p>`;
+  $("asg-subs-block").style.display = "none";
+  api("/api/admin/assignments", { password: reportPw }).then((d) => {
+    const list = d.assignments || [];
+    if (!list.length) { box.innerHTML = `<p class="hint">還沒有題目，用上方表單發布第一題。</p>`; return; }
+    box.innerHTML = list.map((a) =>
+      `<div class="asg-item">` +
+      `<div class="asg-item-main"><div class="asg-item-title">${esc(a.title)} ${a.active ? '<span class="asg-on">開放中</span>' : '<span class="asg-off">已關閉</span>'}</div>` +
+      `<div class="asg-item-sub">${a.submissionCount || 0} 份繳交　·　建議 ${a.minutes || 5} 分鐘</div></div>` +
+      `<div class="asg-item-actions">` +
+      `<button class="kb-btn" data-subs="${esc(a.id)}">繳交</button>` +
+      `<button class="kb-btn" data-edit="${esc(a.id)}">編輯</button>` +
+      `<button class="kb-btn kb-del" data-del="${esc(a.id)}">刪除</button>` +
+      `</div></div>`
+    ).join("");
+    box.querySelectorAll("[data-subs]").forEach((b) => b.onclick = () => loadAssignSubs(b.dataset.subs, list.find((x) => x.id === b.dataset.subs)));
+    box.querySelectorAll("[data-edit]").forEach((b) => b.onclick = () => editAssignment(list.find((x) => x.id === b.dataset.edit)));
+    box.querySelectorAll("[data-del]").forEach((b) => b.onclick = () => deleteAssignment(b.dataset.del, list.find((x) => x.id === b.dataset.del)));
+  }).catch((err) => { box.innerHTML = `<p class="hint">讀取失敗：${esc(err.message)}</p>`; });
+}
+
+function resetAsgForm() {
+  $("asg-id").value = "";
+  $("asg-title").value = "";
+  $("asg-brief").value = "";
+  $("asg-focus").value = "";
+  $("asg-minutes").value = "5";
+  $("asg-active").checked = true;
+  $("btn-asg-save").textContent = "發布題目";
+  $("btn-asg-cancel").classList.add("hidden");
+  $("asg-msg").textContent = "";
+}
+
+function editAssignment(a) {
+  if (!a) return;
+  $("asg-id").value = a.id;
+  $("asg-title").value = a.title || "";
+  $("asg-brief").value = a.brief || "";
+  $("asg-focus").value = a.focus || "";
+  $("asg-minutes").value = a.minutes || 5;
+  $("asg-active").checked = a.active !== false;
+  $("btn-asg-save").textContent = "儲存修改";
+  $("btn-asg-cancel").classList.remove("hidden");
+  $("asg-title").scrollIntoView({ behavior: "smooth", block: "center" });
+}
+$("btn-asg-cancel").onclick = resetAsgForm;
+
+$("btn-asg-save").onclick = async (e) => {
+  const title = $("asg-title").value.trim();
+  if (!title) { toast("請填題目名稱"); return; }
+  const btn = e.currentTarget;
+  btn.disabled = true; btn.textContent = "發布中…";
+  try {
+    const r = await api("/api/admin/assignment/save", {
+      password: reportPw,
+      id: $("asg-id").value || undefined,
+      title,
+      brief: $("asg-brief").value.trim(),
+      focus: $("asg-focus").value.trim(),
+      minutes: Number($("asg-minutes").value) || 5,
+      active: $("asg-active").checked
+    });
+    $("asg-msg").textContent = `✓ 已發布「${r.assignment.title}」${r.persisted ? "，已永久保存" : "（未設 GITHUB_TOKEN，重新部署後會還原）"}。`;
+    resetAsgForm();
+    loadAssignAdmin();
+  } catch (err) {
+    $("asg-msg").textContent = "發布失敗：" + err.message;
+  } finally {
+    btn.disabled = false; btn.textContent = $("asg-id").value ? "儲存修改" : "發布題目";
+  }
+};
+
+function deleteAssignment(id, a) {
+  confirmModal({
+    title: "刪除題目？", body: `確定刪除「${a ? a.title : ""}」？已繳交的紀錄會保留，但業務不會再看到這題。`,
+    okText: "刪除", cancelText: "取消"
+  }, async () => {
+    try { await api("/api/admin/assignment/delete", { password: reportPw, id }); toast("已刪除"); loadAssignAdmin(); }
+    catch (err) { toast("刪除失敗：" + err.message); }
+  });
+}
+
+let currentSubsAssignment = null;
+function loadAssignSubs(assignmentId, a) {
+  currentSubsAssignment = a || { id: assignmentId };
+  const block = $("asg-subs-block");
+  block.style.display = "";
+  $("asg-subs-title").textContent = `繳交紀錄：${a ? a.title : ""}`;
+  $("asg-subs").innerHTML = `<p class="hint">載入中…</p>`;
+  block.scrollIntoView({ behavior: "smooth", block: "start" });
+  api("/api/admin/submissions", { password: reportPw, assignmentId }).then((d) => {
+    const subs = d.submissions || [];
+    if (!subs.length) { $("asg-subs").innerHTML = `<p class="hint">尚無繳交。</p>`; return; }
+    $("asg-subs").innerHTML = subs.map((s) => renderSubCard(s)).join("");
+    wireSubCards();
+  }).catch((err) => { $("asg-subs").innerHTML = `<p class="hint">讀取失敗：${esc(err.message)}</p>`; });
+}
+
+function renderSubCard(s) {
+  const state1 = s.approved ? `<span class="asg-on">已收錄</span>` : s.nominated ? `<span class="asg-nom">優良候選</span>` : "";
+  return `<div class="sub-card">` +
+    `<div class="sub-head"><span><b>${esc(s.name)}</b>　${s.total_score}分 <span class="lv-badge">${esc(s.level || "")}</span> ${state1}</span>` +
+    `<span class="sub-date">${fmtDateTime(s.date)}</span></div>` +
+    `<button class="kb-btn sub-view" data-view='${esc(s.id)}'>看逐字稿與評分</button>` +
+    (s.approved ? "" :
+      s.nominated
+        ? `<button class="kb-btn sub-approve" data-approve='${esc(s.id)}'>核可收錄（蔡總）</button>` +
+          `<button class="kb-btn sub-nominate" data-nominate='${esc(s.id)}' data-on="0">取消候選</button>`
+        : `<button class="kb-btn sub-nominate" data-nominate='${esc(s.id)}' data-on="1">標記優良候選</button>`) +
+    `<div class="sub-detail hidden" id="subd-${esc(s.id)}"><pre class="sub-transcript">${esc(s.transcript)}</pre></div>` +
+    `</div>`;
+}
+
+function wireSubCards() {
+  const box = $("asg-subs");
+  box.querySelectorAll("[data-view]").forEach((b) => b.onclick = () => {
+    const d = $("subd-" + b.dataset.view);
+    d.classList.toggle("hidden");
+    b.textContent = d.classList.contains("hidden") ? "看逐字稿與評分" : "收起";
+  });
+  box.querySelectorAll("[data-nominate]").forEach((b) => b.onclick = async () => {
+    try {
+      await api("/api/admin/submission/nominate", { password: reportPw, id: b.dataset.nominate, nominate: b.dataset.on === "1" });
+      reloadCurrentSubs();
+    } catch (err) { toast(err.message); }
+  });
+  box.querySelectorAll("[data-approve]").forEach((b) => b.onclick = () => {
+    confirmModal({
+      title: "核可並收錄？", body: "核可後，這段話術會收錄進知識庫「優良話術示範」，供 AI 問答與演練回饋參考。此動作需要最高權限（蔡總）密碼。",
+      okText: "確認核可", cancelText: "取消"
+    }, async () => {
+      try { await api("/api/admin/submission/approve", { password: reportPw, id: b.dataset.approve }); toast("✓ 已核可並收錄進知識庫"); reloadCurrentSubs(); }
+      catch (err) { toast(err.message); }
+    });
+  });
+}
+
+function reloadCurrentSubs() {
+  if (currentSubsAssignment) loadAssignSubs(currentSubsAssignment.id, currentSubsAssignment);
+}
 
 // ── 系統管理 ──
 async function loadAdmin() {
@@ -1251,6 +1509,17 @@ async function init() {
   setupMic("mic-chat", "chat-input");
   setupMic("mic-qa", "qa-input");
   setupMic("mic-quiz", "quiz-answer");
+  // 指定演練：有開放題目時，首頁顯示「指定演練」卡並標示題數
+  api("/api/assignments/active").then((d) => {
+    const list = d.assignments || [];
+    state.assignActive = list;
+    if (list.length) {
+      document.querySelector(".feature-assign").classList.remove("hidden");
+      const badge = $("assign-badge");
+      badge.textContent = list.length;
+      badge.classList.remove("hidden");
+    }
+  }).catch(() => {});
 }
 
 init();

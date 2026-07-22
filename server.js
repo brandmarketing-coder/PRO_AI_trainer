@@ -23,10 +23,12 @@ if (!PROVIDER) {
 
 let llm = null;      // { generate({systemStable, systemDynamic, messages, schema, schemaName, maxTokens}) }
 let MODEL = "";      // 目前使用的模型 ID（顯示用）
+let openaiClient = null;   // 供音檔轉逐字稿（Whisper）使用；僅 PROVIDER=openai 時有值
 
 if (PROVIDER === "openai" && process.env.OPENAI_API_KEY) {
   const OpenAI = require("openai");
   const client = new OpenAI();
+  openaiClient = client;
   MODEL = process.env.OPENAI_MODEL || "gpt-4o";
   llm = {
     provider: "openai",
@@ -104,17 +106,24 @@ let FAQ = [];
 // ⚠️ Render 免費方案磁碟是暫存的，重新部署／休眠會清空；長期保存請靠 N8N_WEBHOOK_URL 串到 Google Sheet。
 const REPORT_PASSWORD = process.env.REPORT_PASSWORD || "12890464";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "";
+const SUPERADMIN_PASSWORD = process.env.SUPERADMIN_PASSWORD || "";   // 蔡總（最高權限，核可優良話術收錄）
 const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL || "";
 const DATA_DIR = path.join(__dirname, "data");
 const RECORDS_FILE = path.join(DATA_DIR, "records.json");
 const AUDIT_FILE = path.join(DATA_DIR, "audit.json");
+const SUBMISSIONS_FILE = path.join(DATA_DIR, "submissions.json");   // 指定演練繳交（納入備份）
 
-// ── 權限：兩級密碼 ──
-// REPORT_PASSWORD＝主管（viewer，只能看分數彙整）；ADMIN_PASSWORD＝管理員（admin，全部後台功能）。
-// 未設定 ADMIN_PASSWORD 時，REPORT_PASSWORD 直接視為管理員（與舊版行為相容，交接後請務必設定）。
+// ── 權限：三級密碼 ──
+// REPORT_PASSWORD＝主管（viewer，只看分數彙整）
+// ADMIN_PASSWORD＝管理員（admin，知識庫/系統管理/備份/出題/標記優良候選）
+// SUPERADMIN_PASSWORD＝蔡總（super，最高權限，核可優良話術收錄回知識庫）
+// 向下相容：未設更高層密碼時，主管密碼即擁有當前最高權限。
+const RANK = { viewer: 1, admin: 2, super: 3 };
 function roleOf(password) {
+  if (!password) return null;
+  if (SUPERADMIN_PASSWORD && password === SUPERADMIN_PASSWORD) return "super";
   if (ADMIN_PASSWORD && password === ADMIN_PASSWORD) return "admin";
-  if (password === REPORT_PASSWORD) return ADMIN_PASSWORD ? "viewer" : "admin";
+  if (password === REPORT_PASSWORD) return (ADMIN_PASSWORD || SUPERADMIN_PASSWORD) ? "viewer" : "admin";
   return null;
 }
 
@@ -151,6 +160,16 @@ function readRecords() {
   try {
     return fs.existsSync(RECORDS_FILE) ? JSON.parse(fs.readFileSync(RECORDS_FILE, "utf8")) : [];
   } catch { return []; }
+}
+// 指定演練繳交紀錄
+function readSubmissions() {
+  try {
+    return fs.existsSync(SUBMISSIONS_FILE) ? JSON.parse(fs.readFileSync(SUBMISSIONS_FILE, "utf8")) : [];
+  } catch { return []; }
+}
+function writeSubmissions(list) {
+  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
+  fs.writeFileSync(SUBMISSIONS_FILE, JSON.stringify(list, null, 2));
 }
 // 轉送到 n8n。成功與失敗都寫 log（含 HTTP 狀態碼），方便在 Render Logs 直接看出問題；
 // 回傳結果物件供 /api/records 的 debug 模式回報。
@@ -450,6 +469,48 @@ const QUIZ_GRADE_SCHEMA = {
   additionalProperties: false
 };
 
+// 指定演練評分：依「題目自訂重點」逐項評分 + 保留五大構面參考 + 總分/總評
+const ASSIGNMENT_EVAL_SCHEMA = {
+  type: "object",
+  properties: {
+    criteria_scores: {
+      type: "array",
+      description: "逐項對照題目的評分重點",
+      items: {
+        type: "object",
+        properties: {
+          point: { type: "string", description: "評分重點項目" },
+          mark: MARK,
+          comment: { type: "string", description: "針對這一項的具體點評，引用逐字稿佐證" }
+        },
+        required: ["point", "mark", "comment"],
+        additionalProperties: false
+      }
+    },
+    construct_scores: {
+      type: "array",
+      description: "五大構面（同理客戶、提問能力、產品連結、異議處理、成交引導）參考評分",
+      items: {
+        type: "object",
+        properties: {
+          name: { type: "string" },
+          mark: MARK,
+          score: { type: "integer" }
+        },
+        required: ["name", "mark", "score"],
+        additionalProperties: false
+      }
+    },
+    total_score: { type: "integer", description: "0~100 綜合分數" },
+    level: LEVEL,
+    strengths: { type: "array", items: { type: "string" }, description: "做得好的地方" },
+    improvements: { type: "array", items: { type: "string" }, description: "可改善的地方" },
+    overall: { type: "string", description: "一段整體評語" }
+  },
+  required: ["criteria_scores", "construct_scores", "total_score", "level", "strengths", "improvements", "overall"],
+  additionalProperties: false
+};
+
 // ────────────────────────── Demo 資料（未設 API 金鑰時） ──────────────────────────
 const DEMO_TURN = {
   reply: "嗯……你們跟我現在用的牌子差在哪？大家不是都說自己天然？",
@@ -530,6 +591,22 @@ const DEMO_QUIZ_GRADE = {
   level: "L1",
   reference_answer: "可回答：O'right 的綠不是形容詞，是可驗證的：例如 USDA Biobased 生物基認證與碳-14 檢測證明成分來源、PCR 再生瓶器、零碳綠工廠與 RE100 再生能源承諾。與一般「天然」品牌的差異在於全部有第三方認證可查。",
   correct: false
+};
+
+const DEMO_ASSIGNMENT_EVAL = {
+  criteria_scores: [
+    { point: "USDA Biobased 認證", mark: "○", comment: "有提到天然來源，但沒明確帶出 USDA Biobased 認證與可驗證性。（示範模式範例）" },
+    { point: "價格調整說明", mark: "△", comment: "只說了漲價，未說明是價值與使用感受同步升級。（示範模式範例）" }
+  ],
+  construct_scores: [
+    { name: "同理客戶", mark: "○", score: 14 },
+    { name: "產品連結", mark: "○", score: 15 }
+  ],
+  total_score: 76,
+  level: "L2",
+  strengths: ["整體結構完整，有依序帶到主要重點"],
+  improvements: ["把每個賣點連到可驗證的認證或數據", "價格調整改用價值升級的說法"],
+  overall: "具備基本陳述架構，若能把賣點連結到可驗證依據、並把漲價包裝成價值升級，可穩定進入 L2~L3。（此為示範模式範例，設定 API 金鑰後將產生真實評估）"
 };
 
 // ────────────────────────── API ──────────────────────────
@@ -829,13 +906,15 @@ async function convertToMarkdown(rawText, filename) {
   return toTraditional(typeof out === "string" ? out : String(out || ""));
 }
 
-// 權限閘：need="viewer" 兩種密碼皆可；need="admin" 只有管理員密碼可過。
-// 回傳角色字串，未通過回 null（並已回應 401/403）。
+// 權限閘：need="viewer"|"admin"|"super"。回傳角色字串，未通過回 null（並已回應 401/403）。
+// 特例：要求 super 但未設定蔡總密碼時，退回 admin 即可通過（避免無人能核可）。
 const gate = (req, res, need = "viewer") => {
   const role = roleOf((req.body || {}).password);
   if (!role) { res.status(401).json({ error: "密碼錯誤" }); return null; }
-  if (need === "admin" && role !== "admin") {
-    res.status(403).json({ error: "權限不足：此功能需要管理員密碼" });
+  let needRank = RANK[need] || 1;
+  if (need === "super" && !SUPERADMIN_PASSWORD) needRank = RANK.admin;
+  if (RANK[role] < needRank) {
+    res.status(403).json({ error: need === "super" ? "權限不足：此功能需要最高權限（蔡總）核可" : "權限不足：此功能需要管理員密碼" });
     return null;
   }
   return role;
@@ -923,7 +1002,7 @@ async function runBackup(trigger, req) {
   if (backupInFlight) return backupInFlight;
   backupInFlight = (async () => {
     const records = readRecords();
-    const payload = { savedAt: new Date().toISOString(), records, audit: readAudit() };
+    const payload = { savedAt: new Date().toISOString(), records, audit: readAudit(), submissions: readSubmissions() };
     const r = await ghSaveFile(BACKUP_PATH, JSON.stringify(payload, null, 2), `資料備份：${records.length} 筆演練紀錄（${trigger}）`);
     lastBackupAt = Date.now();
     audit("資料備份", `${trigger}，${records.length} 筆`, "admin", req);
@@ -953,6 +1032,9 @@ async function restoreFromBackup() {
     if (Array.isArray(data.audit) && data.audit.length && readAudit().length === 0) {
       fs.writeFileSync(AUDIT_FILE, JSON.stringify(data.audit, null, 2));
     }
+    if (Array.isArray(data.submissions) && data.submissions.length && readSubmissions().length === 0) {
+      writeSubmissions(data.submissions);
+    }
     lastBackupAt = Date.parse(data.savedAt) || 0;
     console.log(`[backup] 已從 GitHub 還原 ${(data.records || []).length} 筆演練紀錄（備份於 ${data.savedAt}）`);
   } catch (e) {
@@ -974,7 +1056,8 @@ app.post("/api/admin/overview", (req, res) => {
       store: useGitHub() ? "github" : "local",
       auto: "每日自動備份一次；知識庫／名單／開關變更時也會先自動備份"
     },
-    admin_password_set: !!ADMIN_PASSWORD
+    admin_password_set: !!ADMIN_PASSWORD,
+    super_password_set: !!SUPERADMIN_PASSWORD
   });
 });
 
@@ -1028,14 +1111,213 @@ app.post("/api/admin/backup", async (req, res) => {
   catch (e) { res.status(500).json({ error: e.message }); }
 });
 
-// 下載完整備份（JSON 檔：演練紀錄＋稽核日誌）
+// 下載完整備份（JSON 檔：演練紀錄＋稽核日誌＋指定演練繳交）
 app.post("/api/admin/backup/download", (req, res) => {
   if (!gate(req, res, "admin")) return;
   audit("下載備份", `${readRecords().length} 筆`, "admin", req);
-  const payload = { savedAt: new Date().toISOString(), records: readRecords(), audit: readAudit() };
+  const payload = { savedAt: new Date().toISOString(), records: readRecords(), audit: readAudit(), submissions: readSubmissions() };
   res.setHeader("Content-Type", "application/json; charset=utf-8");
   res.setHeader("Content-Disposition", `attachment; filename=oright-trainer-backup-${new Date().toISOString().slice(0, 10)}.json`);
   res.send(JSON.stringify(payload, null, 2));
+});
+
+// ══════════════════ 指定演練（主管出題 → 業務錄音繳交 → AI 依重點評分 → 優良話術收錄） ══════════════════
+const ASSIGNMENTS_FILE = path.join(__dirname, "config", "assignments.json");
+const EXEMPLAR_KB = "14_優良話術示範.md";   // 核可後收錄的知識檔名
+let assignments = [];
+try { assignments = JSON.parse(fs.readFileSync(ASSIGNMENTS_FILE, "utf8")).assignments || []; } catch {}
+
+function saveAssignmentsLocal() {
+  try { fs.writeFileSync(ASSIGNMENTS_FILE, JSON.stringify({ assignments }, null, 2)); } catch {}
+}
+async function persistAssignments() {
+  saveAssignmentsLocal();
+  if (useGitHub()) {
+    await backupBeforeRedeploy();
+    await ghSaveFile("config/assignments.json", JSON.stringify({ assignments }, null, 2), "指定演練：更新題目（後台）");
+  }
+}
+const genId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;
+
+// ── 音檔轉逐字稿（OpenAI Whisper）──
+// 前端把音檔轉成 base64 傳來（避免加 multipart 依賴）；此路由單獨用較大的 body limit。
+app.post("/api/transcribe", express.json({ limit: "30mb" }), async (req, res) => {
+  try {
+    if (!openaiClient) return res.status(503).json({ error: "音檔轉寫需要 OpenAI 金鑰（PROVIDER=openai）" });
+    const { audio, filename } = req.body || {};
+    if (!audio) return res.status(400).json({ error: "缺少音檔" });
+    const b64 = String(audio).includes(",") ? String(audio).split(",")[1] : String(audio);
+    const buf = Buffer.from(b64, "base64");
+    if (buf.length > 25 * 1024 * 1024) return res.status(413).json({ error: "音檔過大（上限 25MB），請壓縮或縮短" });
+    const { toFile } = require("openai");
+    const file = await toFile(buf, filename || "audio.webm");
+    const out = await openaiClient.audio.transcriptions.create({
+      file,
+      model: process.env.TRANSCRIBE_MODEL || "whisper-1",
+      language: "zh"
+    });
+    res.json({ transcript: toTraditional(out.text || "") });
+  } catch (err) {
+    console.error("transcribe error:", err);
+    res.status(500).json({ error: err.message || "轉寫失敗" });
+  }
+});
+
+// ── 業務端：目前開放中的指定演練 ──
+app.get("/api/assignments/active", (req, res) => {
+  res.json({
+    assignments: assignments
+      .filter((a) => a.active)
+      .map((a) => ({ id: a.id, title: a.title, brief: a.brief, minutes: a.minutes, focus: a.focus }))
+  });
+});
+
+// ── 業務端：繳交演練（逐字稿）→ 依題目重點＋五大構面評分 ──
+app.post("/api/assignment/submit", async (req, res) => {
+  try {
+    const { assignmentId, name, transcript } = req.body || {};
+    const a = assignments.find((x) => x.id === assignmentId);
+    if (!a) return res.status(404).json({ error: "找不到此題目（可能已關閉）" });
+    if (!transcript || !String(transcript).trim()) return res.status(400).json({ error: "缺少演練內容" });
+
+    let evaluation;
+    if (!llm) {
+      evaluation = { ...DEMO_ASSIGNMENT_EVAL };
+    } else {
+      evaluation = await callGen(
+        prompts.buildAssignmentEval(a, config.constructs),
+        [{ role: "user", content: `業務「${name || "未填寫"}」的演練逐字稿：\n\n${String(transcript).slice(0, 12000)}` }],
+        ASSIGNMENT_EVAL_SCHEMA,
+        { maxTokens: 3000, contextQuery: `${a.title} ${a.focus || ""}`.slice(0, 200), retrieveOpts: { limit: 3, minScore: 1 } }
+      );
+    }
+
+    const submission = {
+      id: genId(),
+      assignmentId: a.id,
+      assignmentTitle: a.title,
+      name: (name || "").trim() || "未填寫",
+      date: new Date().toISOString(),
+      transcript: String(transcript),
+      total_score: evaluation.total_score,
+      level: evaluation.level,
+      criteria_scores: evaluation.criteria_scores || [],
+      construct_scores: evaluation.construct_scores || [],
+      overall: evaluation.overall || "",
+      nominated: false,
+      approved: false
+    };
+    const list = readSubmissions();
+    list.push(submission);
+    writeSubmissions(list);
+    if (Date.now() - lastBackupAt > 24 * 3600 * 1000) runBackup("每日自動備份").catch(() => {});
+    res.json({ ok: true, submissionId: submission.id, evaluation });
+  } catch (err) {
+    console.error("assignment/submit error:", err);
+    res.status(500).json({ error: err.message || "評分失敗" });
+  }
+});
+
+// ── 出題管理（管理員）──
+app.post("/api/admin/assignments", (req, res) => {
+  if (!gate(req, res, "admin")) return;
+  const subs = readSubmissions();
+  const withCounts = assignments.map((a) => ({
+    ...a,
+    submissionCount: subs.filter((s) => s.assignmentId === a.id).length
+  }));
+  res.json({ assignments: withCounts });
+});
+
+app.post("/api/admin/assignment/save", async (req, res) => {
+  if (!gate(req, res, "admin")) return;
+  const { id, title, brief, focus, minutes, active } = req.body || {};
+  if (!title || !String(title).trim()) return res.status(400).json({ error: "缺少題目名稱" });
+  try {
+    const data = {
+      title: String(title).trim(),
+      brief: String(brief || "").trim(),
+      focus: String(focus || "").trim(),
+      minutes: Number(minutes) || 5,
+      active: active !== false
+    };
+    let saved;
+    if (id) {
+      const a = assignments.find((x) => x.id === id);
+      if (!a) return res.status(404).json({ error: "找不到題目" });
+      Object.assign(a, data);
+      saved = a;
+    } else {
+      saved = { id: genId(), createdAt: new Date().toISOString(), ...data };
+      assignments.push(saved);
+    }
+    await persistAssignments();
+    audit("指定演練出題", `${id ? "更新" : "新增"}：${saved.title}（${saved.active ? "開放" : "關閉"}）`, "admin", req);
+    res.json({ ok: true, assignment: saved, persisted: useGitHub() });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post("/api/admin/assignment/delete", async (req, res) => {
+  if (!gate(req, res, "admin")) return;
+  const { id } = req.body || {};
+  const a = assignments.find((x) => x.id === id);
+  if (!a) return res.status(404).json({ error: "找不到題目" });
+  try {
+    assignments = assignments.filter((x) => x.id !== id);
+    await persistAssignments();
+    audit("指定演練刪題", a.title, "admin", req);
+    res.json({ ok: true });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── 繳交檢視（管理員）──
+app.post("/api/admin/submissions", (req, res) => {
+  if (!gate(req, res, "admin")) return;
+  const { assignmentId } = req.body || {};
+  let list = readSubmissions();
+  if (assignmentId) list = list.filter((s) => s.assignmentId === assignmentId);
+  res.json({ submissions: list.slice().reverse() });
+});
+
+// ── 兩段式收錄：① 管理員標記優良候選 ──
+app.post("/api/admin/submission/nominate", (req, res) => {
+  const role = gate(req, res, "admin");
+  if (!role) return;
+  const { id, nominate } = req.body || {};
+  const list = readSubmissions();
+  const s = list.find((x) => x.id === id);
+  if (!s) return res.status(404).json({ error: "找不到繳交紀錄" });
+  s.nominated = nominate !== false;
+  if (!s.nominated) s.approved = false;
+  writeSubmissions(list);
+  audit("優良話術候選", `${s.nominated ? "標記" : "取消"}：${s.name}／${s.assignmentTitle}`, role, req);
+  res.json({ ok: true, nominated: s.nominated });
+});
+
+// ── 兩段式收錄：② 蔡總（super）核可 → 收錄進知識庫 ──
+app.post("/api/admin/submission/approve", async (req, res) => {
+  const role = gate(req, res, "super");
+  if (!role) return;
+  const { id } = req.body || {};
+  const list = readSubmissions();
+  const s = list.find((x) => x.id === id);
+  if (!s) return res.status(404).json({ error: "找不到繳交紀錄" });
+  if (!s.nominated) return res.status(400).json({ error: "此繳交尚未被標記為優良候選" });
+  try {
+    let existing = "";
+    try { existing = await getKnowledge(EXEMPLAR_KB); } catch {}
+    if (!existing) existing = "# 優良話術示範\n\n經核可收錄的業務優良演練話術，供 AI 問答與演練回饋參考。\n";
+    const block =
+      `\n\n## ${s.assignmentTitle}｜${s.name}（${new Date(s.date).toISOString().slice(0, 10)}，${s.total_score}分／${s.level}）\n\n` +
+      `${s.transcript.trim()}\n`;
+    await backupBeforeRedeploy();
+    await saveKnowledge(EXEMPLAR_KB, existing + block);
+    s.approved = true;
+    s.approvedAt = new Date().toISOString();
+    writeSubmissions(list);
+    audit("優良話術收錄", `核可並收錄：${s.name}／${s.assignmentTitle}`, role, req);
+    res.json({ ok: true, filename: EXEMPLAR_KB });
+  } catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 app.post("/api/quiz/next", featureGate("quiz", "隨機測驗"), async (req, res) => {

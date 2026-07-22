@@ -247,6 +247,45 @@
         case "/api/admin/backup":
           await sleep(300);
           throw new Error("靜態展示版無法變更設定或備份，請使用完整部署版本。");
+        case "/api/assignments/active":
+          await sleep(200);
+          return { assignments: [
+            { id: "demo-a1", title: "模擬話術演練｜精華油升級版銷售說明", brief: "請模擬你正在向沙龍店家介紹「豐盈彈韌精華油升級版」，說明升級價值與 10mL／70mL 銷售應用。", minutes: 5, focus: "USDA 認證、質地升級、價格價值" }
+          ] };
+        case "/api/assignment/submit":
+          await sleep(1200);
+          return { ok: true, demo: true, submissionId: "demo-s1", evaluation: {
+            criteria_scores: [
+              { point: "USDA Biobased 認證", mark: "◎", comment: "清楚帶出天然來源與可驗證的永續價值。（靜態展示版固定範例）" },
+              { point: "兩款髮質差異", mark: "○", comment: "有區分但可再具體到適用髮質。（範例）" },
+              { point: "價格價值升級", mark: "◎", comment: "成功把調價包裝成整體價值升級。（範例）" }
+            ],
+            construct_scores: [ { name: "產品連結", mark: "◎", score: 18 }, { name: "成交引導", mark: "○", score: 15 } ],
+            total_score: 88, level: "L2",
+            strengths: ["結構完整、賣點連到可驗證依據"],
+            improvements: ["兩款差異可再具體到髮質情境"],
+            overall: "整體表現穩定，價值傳達清楚。（此為靜態展示版固定範例；完整版由 AI 依題目評分重點評分）"
+          } };
+        case "/api/admin/assignments":
+          await sleep(200);
+          return { assignments: [
+            { id: "demo-a1", title: "模擬話術演練｜精華油升級版銷售說明", brief: "介紹精華油升級版…", focus: "USDA 認證、質地、價格價值", minutes: 5, active: true, submissionCount: 2 }
+          ] };
+        case "/api/admin/submissions":
+          await sleep(200);
+          return { submissions: [
+            { id: "demo-s1", name: "任俊傑", date: "2026-07-16T08:30:00Z", total_score: 88, level: "L2", nominated: true, approved: false, transcript: "老師您好，這次精華油升級最大重點是通過 USDA Biobased 認證…（靜態展示版範例逐字稿）" },
+            { id: "demo-s2", name: "楊皓閔", date: "2026-07-15T06:00:00Z", total_score: 74, level: "L1", nominated: false, approved: false, transcript: "我們的精華油升級了，用起來比較不油…（範例）" }
+          ] };
+        case "/api/transcribe":
+          await sleep(600);
+          throw new Error("靜態展示版無法轉寫音檔，請使用完整部署版本。");
+        case "/api/admin/assignment/save":
+        case "/api/admin/assignment/delete":
+        case "/api/admin/submission/nominate":
+        case "/api/admin/submission/approve":
+          await sleep(300);
+          throw new Error("靜態展示版無法變更指定演練，請使用完整部署版本。");
         case "/api/knowledge/list":
           await sleep(250);
           if (!body || body.password !== "12890464") { const e = new Error("密碼錯誤"); throw e; }

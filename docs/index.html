@@ -42,6 +42,14 @@
           <p>今天想練什麼？<br />陪你在正式上場前把實力練起來。</p>
         </div>
         <div class="feature-list">
+          <button class="feature-card feature-assign hidden" data-goto="assign-list">
+            <span class="f-icon">🎯</span>
+            <span class="f-body">
+              <span class="f-name">指定演練 <span id="assign-badge" class="f-badge hidden"></span></span>
+              <span class="f-desc">主管出的本週題目，錄音繳交、AI 依重點評分</span>
+            </span>
+            <span class="f-arrow">›</span>
+          </button>
           <button class="feature-card" data-goto="rp-theme">
             <span class="f-icon">🎭</span>
             <span class="f-body">
@@ -267,6 +275,79 @@
       </div>
     </main>
 
+    <!-- 指定演練：題目清單 -->
+    <main id="screen-assign-list" class="screen scroll hidden">
+      <div class="container">
+        <div class="step-head">
+          <h2>指定演練</h2>
+          <p class="hint">主管指定的題目。選一題，錄音繳交後由 Jenny 老師依評分重點評分。</p>
+        </div>
+        <div id="assign-list" class="option-list"></div>
+      </div>
+    </main>
+
+    <!-- 指定演練：做題（看題→錄/傳音檔→轉寫→送出） -->
+    <main id="screen-assign-do" class="screen scroll hidden">
+      <div class="container">
+        <div class="section-card">
+          <div id="assign-do-title" class="assign-title"></div>
+          <div id="assign-do-meta" class="assign-meta"></div>
+          <div id="assign-do-brief" class="assign-brief"></div>
+        </div>
+
+        <label class="field-label" for="assign-name">你的姓名</label>
+        <input id="assign-name" type="text" list="roster-list" placeholder="輸入或選擇你的姓名" maxlength="20" autocomplete="off" />
+
+        <div class="section-card" style="margin-top:16px">
+          <h3>繳交演練</h3>
+          <p class="hint">用手機錄下你的話術（或上傳事先錄好的音檔），系統會轉成逐字稿讓你確認，再送出評分。也可以直接打字。</p>
+          <label for="assign-audio" class="upload-box" id="assign-upload-box">
+            <span class="upload-icon">🎙️</span>
+            <span class="upload-text">點此上傳／錄製音檔<br /><span class="hint">支援 mp3／m4a／wav／webm，上限 25MB</span></span>
+          </label>
+          <input id="assign-audio" type="file" accept="audio/*" capture class="hidden" />
+          <div id="assign-transcribe-msg" class="hint"></div>
+          <label class="field-label" for="assign-transcript" style="margin-top:14px">逐字稿（可修正錯字後再送出）</label>
+          <textarea id="assign-transcript" rows="8" placeholder="上傳音檔後這裡會出現轉寫結果；也可以直接打字輸入你的話術。"></textarea>
+          <button id="btn-assign-submit" class="btn-primary btn-block">送出評分</button>
+        </div>
+      </div>
+    </main>
+
+    <!-- 指定演練：成績 -->
+    <main id="screen-assign-result" class="screen scroll hidden">
+      <div class="container">
+        <div class="section-card result-head">
+          <div id="assign-result-meta" class="result-meta"></div>
+          <div id="assign-result-total" class="result-total"></div>
+        </div>
+        <div class="section-card">
+          <h3>評分重點對照</h3>
+          <div id="assign-result-criteria"></div>
+        </div>
+        <div class="section-card">
+          <h3>五大構面（參考）</h3>
+          <div id="assign-result-constructs"></div>
+        </div>
+        <div class="section-card">
+          <h3>做得好的地方</h3>
+          <ul id="assign-result-strengths" class="plain-list"></ul>
+        </div>
+        <div class="section-card">
+          <h3>可以再加強</h3>
+          <ul id="assign-result-improvements" class="plain-list"></ul>
+        </div>
+        <div class="section-card">
+          <h3>整體評語</h3>
+          <p id="assign-result-overall" class="body-text"></p>
+        </div>
+        <div class="result-actions">
+          <button id="btn-assign-again" class="btn-outline">再做一題</button>
+          <button id="btn-assign-home" class="btn-outline">回首頁</button>
+        </div>
+      </div>
+    </main>
+
     <!-- 報表後台（主管專用，需密碼） -->
     <main id="screen-report" class="screen scroll hidden">
       <div class="container">
@@ -284,6 +365,7 @@
         <div id="report-content" class="hidden">
           <div class="report-tabs">
             <button id="tab-scores" class="rtab active">分數彙整</button>
+            <button id="tab-assign" class="rtab admin-tab hidden">指定演練</button>
             <button id="tab-kb" class="rtab admin-tab hidden">知識庫管理</button>
             <button id="tab-admin" class="rtab admin-tab hidden">系統管理</button>
             <button id="tab-backup" class="rtab admin-tab hidden">資料備份</button>
@@ -314,6 +396,39 @@
 
             <h3 style="margin-top:20px">現有知識檔</h3>
             <div id="kb-list"></div>
+          </section>
+
+          <!-- 分頁：指定演練（管理員出題、檢視繳交、核可優良話術） -->
+          <section id="pane-assign" class="hidden">
+            <div class="admin-block">
+              <h3>出題</h3>
+              <p class="hint">出一道指定演練題目給業務。「評分重點」是這次的溝通重點，AI 會逐項對照評分（每題可不同）。</p>
+              <label class="field-label" for="asg-title">題目名稱</label>
+              <input id="asg-title" type="text" maxlength="60" placeholder="例：模擬話術演練｜精華油升級版銷售說明" autocomplete="off" />
+              <label class="field-label" for="asg-brief" style="margin-top:12px">演練內容說明（給業務看的情境與要求）</label>
+              <textarea id="asg-brief" rows="6" placeholder="請模擬你正在向沙龍店家介紹「豐盈彈韌精華油升級版」…"></textarea>
+              <label class="field-label" for="asg-focus" style="margin-top:12px">本題評分重點（AI 依此逐項評分，一行一項最清楚）</label>
+              <textarea id="asg-focus" rows="6" placeholder="1. USDA Biobased 認證有無說明清楚&#10;2. 兩款髮質差異是否講對&#10;3. 價格 1300→1500 是否包裝成價值升級而非漲價"></textarea>
+              <div class="asg-row">
+                <div><label class="field-label" for="asg-minutes">建議時間（分鐘）</label>
+                  <input id="asg-minutes" type="number" min="1" max="30" value="5" /></div>
+                <label class="switch-row asg-active"><input type="checkbox" id="asg-active" checked /><span>開放業務作答</span></label>
+              </div>
+              <input type="hidden" id="asg-id" />
+              <button id="btn-asg-save" class="btn-primary btn-block" style="margin-top:16px">發布題目</button>
+              <button id="btn-asg-cancel" class="link-btn hidden">取消編輯</button>
+              <div id="asg-msg" class="hint"></div>
+            </div>
+
+            <div class="admin-block">
+              <h3>現有題目</h3>
+              <div id="asg-list"></div>
+            </div>
+
+            <div class="admin-block" id="asg-subs-block" style="display:none">
+              <h3 id="asg-subs-title">繳交紀錄</h3>
+              <div id="asg-subs"></div>
+            </div>
           </section>
 
           <!-- 分頁三：系統管理（管理員專用） -->
