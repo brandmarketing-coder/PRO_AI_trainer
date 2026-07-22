@@ -1163,7 +1163,7 @@ async function runBackup(trigger, req) {
       audit: readAudit(),
       submissions: readSubmissions().slice(-200)
     };
-    const r = await ghSaveFile(BACKUP_PATH, JSON.stringify(payload, null, 2), `資料備份：${records.length} 筆演練紀錄（${trigger}）`);
+    const r = await ghSaveFile(BACKUP_PATH, JSON.stringify(payload, null, 2), `[skip render] 資料備份：${records.length} 筆演練紀錄（${trigger}）`);
     lastBackupAt = Date.now();
     audit("資料備份", `${trigger}，${records.length} 筆`, "admin", req);
     console.log(`[backup] 已備份 ${records.length} 筆演練紀錄到 GitHub（${trigger}）`);
@@ -1237,7 +1237,7 @@ app.post("/api/admin/flags", async (req, res) => {
     try { fs.writeFileSync(FLAGS_FILE, json); } catch {}
     if (useGitHub()) {
       await backupBeforeRedeploy();
-      await ghSaveFile("config/feature-flags.json", json, "系統管理：更新功能開關與公告（後台）");
+      await ghSaveFile("config/feature-flags.json", json, "[skip render] 系統管理：更新功能開關與公告（後台）");
     }
     audit("功能開關", `演練:${flags.roleplay ? "開" : "關"} 問答:${flags.qa ? "開" : "關"} 測驗:${flags.quiz ? "開" : "關"}${flags.announcement ? `，公告：${flags.announcement}` : ""}`, "admin", req);
     res.json({ ok: true, flags, persisted: useGitHub() });
@@ -1260,7 +1260,7 @@ app.post("/api/admin/roster", async (req, res) => {
     try { fs.writeFileSync(path.join(__dirname, "config", "trainer-config.json"), json); } catch {}
     if (useGitHub()) {
       await backupBeforeRedeploy();
-      await ghSaveFile("config/trainer-config.json", json, `系統管理：更新業務名單（${before.length} → ${roster.length} 人，後台）`);
+      await ghSaveFile("config/trainer-config.json", json, `[skip render] 系統管理：更新業務名單（${before.length} → ${roster.length} 人，後台）`);
     }
     audit("名單更新", `${before.length} → ${roster.length} 人${added.length ? `，新增：${added.join("、")}` : ""}${removed.length ? `，移除：${removed.join("、")}` : ""}`, "admin", req);
     res.json({ ok: true, roster, persisted: useGitHub() });
@@ -1297,7 +1297,7 @@ async function persistAssignments() {
   saveAssignmentsLocal();
   if (useGitHub()) {
     await backupBeforeRedeploy();
-    await ghSaveFile("config/assignments.json", JSON.stringify({ assignments }, null, 2), "指定演練：更新題目（後台）");
+    await ghSaveFile("config/assignments.json", JSON.stringify({ assignments }, null, 2), "[skip render] 指定演練：更新題目（後台）");
   }
 }
 const genId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 7)}`;

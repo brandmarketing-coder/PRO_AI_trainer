@@ -5,6 +5,14 @@ services:
     plan: free
     buildCommand: npm install
     startCommand: npm start
+    # 這些路徑只有後台存檔會動（設定/名單/開關/備份），改它們不需要重新部署。
+    # 忽略後，後台存檔的 commit 不會觸發部署，避免存檔造成網站重啟閃爍。
+    # （知識庫 knowledge/ 不在忽略清單，上傳知識檔仍會重新部署以重建索引。）
+    buildFilter:
+      ignoredPaths:
+        - "config/**"
+        - "data/**"
+        - "backups/**"
     envVars:
       # 選擇 AI provider：openai 或 anthropic
       - key: PROVIDER
