@@ -108,6 +108,7 @@ const REPORT_PASSWORD = process.env.REPORT_PASSWORD || "12890464";
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || "";
 const SUPERADMIN_PASSWORD = process.env.SUPERADMIN_PASSWORD || "";   // 蔡總（最高權限，核可優良話術收錄）
 const N8N_WEBHOOK_URL = process.env.N8N_WEBHOOK_URL || "";
+const APPS_SCRIPT_URL = process.env.APPS_SCRIPT_URL || "";   // App 直接把演練紀錄寫進 Google Sheet（免 n8n）
 const DATA_DIR = path.join(__dirname, "data");
 const RECORDS_FILE = path.join(DATA_DIR, "records.json");
 const AUDIT_FILE = path.join(DATA_DIR, "audit.json");
@@ -171,29 +172,82 @@ function writeSubmissions(list) {
   if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
   fs.writeFileSync(SUBMISSIONS_FILE, JSON.stringify(list, null, 2));
 }
-// 轉送到 n8n。成功與失敗都寫 log（含 HTTP 狀態碼），方便在 Render Logs 直接看出問題；
-// 回傳結果物件供 /api/records 的 debug 模式回報。
-async function forwardToN8n(rec) {
-  if (!N8N_WEBHOOK_URL) {
-    console.log("[records] 未設定 N8N_WEBHOOK_URL，略過轉送");
-    return { sent: false, reason: "N8N_WEBHOOK_URL 未設定" };
+// 把一筆演練紀錄整理成 Google Sheet 的一列（欄名需與 Apps Script 的 HEADERS 一致）。
+// 這段原本在 n8n 的 Code 節點；改成 App 直接送 Apps Script 後搬進來。
+function formatRecordRow(rec) {
+  let when = rec.date || "";
+  if (when) {
+    try {
+      when = new Date(when).toLocaleString("zh-TW", {
+        timeZone: "Asia/Taipei",
+        year: "numeric", month: "2-digit", day: "2-digit",
+        hour: "2-digit", minute: "2-digit", hour12: false
+      }).replace(/-/g, "/");
+    } catch {}
   }
-  try {
-    const r = await fetch(N8N_WEBHOOK_URL, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(rec)
-    });
-    if (r.ok) {
-      console.log(`[records] 已轉送 n8n（HTTP ${r.status}）：${rec.name}`);
-      return { sent: true, status: r.status };
+  const transcript = Array.isArray(rec.transcript)
+    ? rec.transcript.map((t) => {
+        if (t && (t.sales !== undefined || t.manager !== undefined)) {
+          return `業務：${t.sales || ""}\n店長：${t.manager || ""}`;
+        }
+        return `${t.role === "sales" ? "業務" : "店長"}：${t.text || ""}`;
+      }).join("\n")
+    : "";
+  const cs = Array.isArray(rec.construct_scores)
+    ? rec.construct_scores.map((c) => `${c.name}:${c.mark || ""}${c.score != null ? c.score : ""}`).join("、")
+    : "";
+  return {
+    "時間": when,
+    "業務": rec.name || "",
+    "主題": rec.theme || "",
+    "模式": rec.mode || "",
+    "總分": rec.total_score != null ? rec.total_score : "",
+    "層級": rec.level || "",
+    "層級說明": rec.level_note || "",
+    "待加強面向": Array.isArray(rec.weak_areas) ? rec.weak_areas.join("、") : "",
+    "各面向分數": cs,
+    "逐字稿": transcript
+  };
+}
+
+// 歸檔到 Google Sheet：優先「App 直接送 Apps Script」（APPS_SCRIPT_URL，繞過公司防火牆、免 n8n）；
+// 未設時退回舊的 n8n webhook（送原始 rec，由 n8n 整理）。成功與失敗都寫 log 方便在 Render Logs 排查。
+async function forwardRecord(rec) {
+  if (APPS_SCRIPT_URL) {
+    try {
+      const r = await fetch(APPS_SCRIPT_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(formatRecordRow(rec)),
+        redirect: "follow"   // Apps Script /exec 會 302 轉址，需跟隨
+      });
+      const body = await r.text().catch(() => "");
+      const ok = r.ok && !/"ok"\s*:\s*false/.test(body);
+      if (ok) { console.log(`[records] 已寫入 Google Sheet（Apps Script）：${rec.name}`); return { sent: true, via: "apps_script", status: r.status }; }
+      console.warn(`[records] Apps Script 回應異常 HTTP ${r.status}：${body.slice(0, 120)}`);
+      return { sent: false, via: "apps_script", status: r.status, reason: body.slice(0, 120) || `HTTP ${r.status}` };
+    } catch (e) {
+      console.warn("[records] Apps Script 寫入失敗：", e.message);
+      return { sent: false, via: "apps_script", reason: e.message };
     }
-    console.warn(`[records] n8n 回應異常 HTTP ${r.status}（檢查是否為正式 /webhook/ 網址、workflow 是否已啟用）`);
-    return { sent: false, status: r.status, reason: `n8n 回應 HTTP ${r.status}` };
-  } catch (e) {
-    console.warn("[records] n8n 轉送失敗：", e.message);
-    return { sent: false, reason: e.message };
   }
+  if (N8N_WEBHOOK_URL) {
+    try {
+      const r = await fetch(N8N_WEBHOOK_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(rec)
+      });
+      if (r.ok) { console.log(`[records] 已轉送 n8n（HTTP ${r.status}）：${rec.name}`); return { sent: true, via: "n8n", status: r.status }; }
+      console.warn(`[records] n8n 回應異常 HTTP ${r.status}`);
+      return { sent: false, via: "n8n", status: r.status, reason: `n8n 回應 HTTP ${r.status}` };
+    } catch (e) {
+      console.warn("[records] n8n 轉送失敗：", e.message);
+      return { sent: false, via: "n8n", reason: e.message };
+    }
+  }
+  console.log("[records] 未設定 APPS_SCRIPT_URL／N8N_WEBHOOK_URL，略過外部歸檔（仍有本機＋GitHub 備份）");
+  return { sent: false, reason: "未設定歸檔目的地" };
 }
 
 function appendRecord(rec) {
@@ -209,8 +263,8 @@ function appendRecord(rec) {
   if (Date.now() - lastBackupAt > 24 * 3600 * 1000) {
     runBackup("每日自動備份").catch((e) => console.warn("[backup] 自動備份失敗：", e.message));
   }
-  // 非阻塞地轉送到 n8n，失敗不影響主流程
-  return forwardToN8n(rec);
+  // 非阻塞地歸檔到 Google Sheet，失敗不影響主流程
+  return forwardRecord(rec);
 }
 
 // 把問句正規化（去標點空白、轉小寫）後比對；完全相同或高度重疊即視為命中
@@ -625,8 +679,8 @@ app.get("/api/config", (req, res) => {
     demo: !llm,
     model: MODEL,
     flags,                               // 功能開關與維護公告（前端據此隱藏功能卡、顯示公告）
-    n8n_configured: !!N8N_WEBHOOK_URL,   // 是否已設定 N8N_WEBHOOK_URL（不外洩網址本身）
-    build: "2026-07-17-admin"            // 部署版本標記，用於確認新版已上線
+    archive: APPS_SCRIPT_URL ? "apps_script" : N8N_WEBHOOK_URL ? "n8n" : "none",   // 歸檔目的地（不外洩網址）
+    build: "2026-07-22-sheet"            // 部署版本標記，用於確認新版已上線
   });
 });
 
@@ -725,7 +779,7 @@ app.post("/api/qa", featureGate("qa", "知識問答"), async (req, res) => {
 // ── 訓練紀錄歸檔 ──
 app.post("/api/records", async (req, res) => {
   try {
-    const { name, themeName, modeLabel, evaluation, transcript, debug_n8n } = req.body || {};
+    const { name, themeName, modeLabel, evaluation, transcript, debug_archive, debug_n8n } = req.body || {};
     if (!evaluation) return res.status(400).json({ error: "缺少評估資料" });
     const rec = {
       name: (name || "").trim() || "未填寫",
@@ -741,8 +795,8 @@ app.post("/api/records", async (req, res) => {
       transcript: transcript || []   // 逐字稿（供 n8n / AI Agent 分析）
     };
     const forward = appendRecord(rec);
-    // debug 模式：等轉送完成並回報結果（排查 N8N_WEBHOOK_URL 用）；一般使用不等待
-    if (debug_n8n) return res.json({ ok: true, n8n: await forward });
+    // debug 模式：等歸檔完成並回報結果（排查用）；一般使用不等待
+    if (debug_archive || debug_n8n) return res.json({ ok: true, archive: await forward });
     res.json({ ok: true });
   } catch (err) {
     console.error("records error:", err);

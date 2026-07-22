@@ -99,7 +99,21 @@ npm start                # http://localhost:3000
   2. 知識庫／名單／開關**變更前自動備份**（這些操作會觸發重新部署）
   3. 網站重新部署後**自動從最新備份還原**演練紀錄
 - 另有「立即備份」與「下載完整備份（JSON）」按鈕；建議每月下載一份存公司雲端
-- 若已設定 n8n（`N8N_WEBHOOK_URL`），每筆演練紀錄也會即時歸檔到 Google Sheet，為最主要的長期保存
+- 若已設定 Google Sheet 歸檔（見下），每筆演練紀錄也會即時寫進試算表，為最主要的長期保存
+
+### 演練紀錄自動歸檔到 Google Sheet
+
+每完成一場情境演練評分，紀錄會即時寫進 Google 試算表。有兩種接法，擇一：
+
+| 做法 | 環境變數 | 說明 |
+|---|---|---|
+| **App 直接寫入（推薦）** | `APPS_SCRIPT_URL` | App 直接把整理好的欄位送進 Google Apps Script。免架 n8n，且因 Apps Script 是 Google 公開網址，**不受公司防火牆限制** |
+| 經 n8n 中轉（舊做法） | `N8N_WEBHOOK_URL` | App 送原始資料給 n8n，由 n8n 整理後寫 Sheet。只有未設 `APPS_SCRIPT_URL` 時才會用 |
+
+推薦做法設定步驟：
+1. 依 `n8n/google-apps-script.gs` 檔頭說明，把 Apps Script 部署成網頁應用程式（填 `SHEET_ID`、存取權設「所有人」），複製 `/exec` 網址。
+2. 在 Render → Environment 設 `APPS_SCRIPT_URL` = 該 `/exec` 網址，儲存後自動重新部署。
+3. 完成一場演練後，紀錄就會出現在試算表；也可用後台「資料備份」作為第二道保存。
 
 ## 客製化
 
