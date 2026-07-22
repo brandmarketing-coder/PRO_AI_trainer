@@ -488,9 +488,24 @@ function renderResult() {
   const diff = CONFIG.difficulties[state.difficulty];
   $("result-meta").textContent =
     `${state.name || "未填寫姓名"}｜${todayStr()}｜${theme.name}｜${diff.label}`;
-  $("result-total").innerHTML =
-    `總分 ${ev.total_score} / 100<span class="level-badge">${esc(ev.level_note)}</span>`;
 
+  // 成績卡
+  $("result-score-num").textContent = ev.total_score;
+  $("result-level").innerHTML = `<span class="level-badge">${esc(ev.level_note || ev.level || "")}</span>`;
+  $("result-headline").textContent = ev.headline || ev.overall_observation || "";
+  $("result-radar").innerHTML = radarSvg(ev.constructs);
+
+  // 亮點
+  const strengths = ev.strengths || [];
+  $("result-strengths-card").style.display = strengths.length ? "" : "none";
+  $("result-strengths").innerHTML = strengths.map((s) => `<li>${esc(s)}</li>`).join("");
+
+  // 最該改的一件事
+  const tp = ev.top_priority || {};
+  $("result-priority-title").textContent = tp.title || "";
+  $("result-priority-detail").textContent = tp.detail || "";
+
+  // 細節：五大構面（依評價上色）
   const wrap = $("result-scores");
   wrap.innerHTML = "";
   ev.constructs.forEach((c) => {
@@ -498,7 +513,7 @@ function renderResult() {
     div.className = "score-item";
     div.innerHTML = `
       <div class="sc-head"><span>${markSpan(c.mark)} ${esc(c.name)}</span><span>${c.score} / 20</span></div>
-      <div class="score-bar"><div class="score-bar-fill" style="width:${c.score * 5}%"></div></div>
+      <div class="score-bar"><div class="score-bar-fill mk-fill-${markClass(c.mark)}" style="width:${c.score * 5}%"></div></div>
       <div class="sc-comment">${esc(c.observation)}</div>`;
     wrap.appendChild(div);
   });
@@ -506,16 +521,57 @@ function renderResult() {
   $("result-checkpoints").innerHTML = ev.checkpoints
     .map((c) => `<li class="${c.done ? "cp-done" : "cp-miss"}">${c.done ? "✓" : "✗"} ${esc(c.name)}${c.note ? `（${esc(c.note)}）` : ""}</li>`)
     .join("");
-  $("result-improvements").innerHTML = ev.improvements.map((m) => `<li>${esc(m)}</li>`).join("");
   $("result-overall").textContent = ev.overall_judgment;
   $("result-steps").innerHTML = ev.next_steps
     .map((s) => `<tr><td>${esc(s.direction)}</td><td>${esc(s.method)}</td></tr>`)
     .join("");
 }
 
+function markClass(mark) {
+  return mark === "◎" ? "good" : mark === "○" ? "ok" : "weak";
+}
 function markSpan(mark) {
-  const cls = mark === "◎" ? "mk-good" : mark === "○" ? "mk-ok" : "mk-weak";
-  return `<span class="${cls}">${mark}</span>`;
+  return `<span class="mk-${markClass(mark)}">${mark}</span>`;
+}
+
+// 五大構面雷達圖（0~20 分／軸，依整體強弱用森林綠填色；弱項頂點標紅點）
+function radarSvg(constructs) {
+  const n = constructs.length;
+  if (!n) return "";
+  const size = 200, cx = size / 2, cy = size / 2 + 6, R = 66;
+  const ptAt = (i, r) => {
+    const ang = -Math.PI / 2 + (i * 2 * Math.PI) / n;
+    return [cx + r * Math.cos(ang), cy + r * Math.sin(ang)];
+  };
+  // 背景格線（4 圈）
+  let grid = "";
+  for (let ring = 1; ring <= 4; ring++) {
+    const pts = constructs.map((_, i) => ptAt(i, (R * ring) / 4).map((v) => v.toFixed(1)).join(",")).join(" ");
+    grid += `<polygon points="${pts}" fill="none" stroke="#d7e2db" stroke-width="1"/>`;
+  }
+  // 軸線
+  let axes = "";
+  constructs.forEach((_, i) => {
+    const [x, y] = ptAt(i, R);
+    axes += `<line x1="${cx}" y1="${cy}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke="#d7e2db" stroke-width="1"/>`;
+  });
+  // 分數多邊形
+  const scorePts = constructs.map((c, i) => ptAt(i, (R * Math.max(0, Math.min(20, c.score))) / 20).map((v) => v.toFixed(1)).join(",")).join(" ");
+  // 頂點（依評價上色）＋軸標籤
+  const markColor = { "◎": "#3f7a5f", "○": "#c79a3a", "△": "#c05f4b" };
+  let dots = "", labels = "";
+  constructs.forEach((c, i) => {
+    const [px, py] = ptAt(i, (R * Math.max(0, Math.min(20, c.score))) / 20);
+    dots += `<circle cx="${px.toFixed(1)}" cy="${py.toFixed(1)}" r="3.2" fill="${markColor[c.mark] || "#3f7a5f"}"/>`;
+    const [lx, ly] = ptAt(i, R + 16);
+    const anchor = Math.abs(lx - cx) < 4 ? "middle" : lx < cx ? "end" : "start";
+    const short = c.name.slice(0, 4);
+    labels += `<text x="${lx.toFixed(1)}" y="${(ly + 3).toFixed(1)}" text-anchor="${anchor}" font-size="10.5" fill="#4a5a55">${short}</text>`;
+  });
+  return `<svg viewBox="0 0 ${size} ${size}" width="100%" style="max-width:210px" role="img" aria-label="五大構面雷達圖">` +
+    grid + axes +
+    `<polygon points="${scorePts}" fill="rgba(92,127,113,0.28)" stroke="#5c7f71" stroke-width="1.8"/>` +
+    dots + labels + `</svg>`;
 }
 
 function todayStr() {
@@ -627,6 +683,7 @@ $("btn-share").onclick = async (e) => {
 };
 
 $("btn-restart").onclick = () => go("rp-theme");
+$("btn-goqa").onclick = () => { resetQa(); go("qa"); };
 
 // ═════════════════ 知識問答 ═════════════════
 function renderQaStarter() {

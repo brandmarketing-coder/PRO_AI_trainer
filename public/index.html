@@ -169,39 +169,61 @@
     <!-- 評估報告 -->
     <main id="screen-result" class="screen scroll hidden">
       <div class="container">
-        <div class="section-card result-head">
-          <div id="result-meta" class="result-meta"></div>
-          <div id="result-total" class="result-total"></div>
+        <!-- 成績卡：分數＋層級＋白話總結＋五構面雷達 -->
+        <div class="score-hero">
+          <div id="result-meta" class="score-hero-meta"></div>
+          <div class="score-hero-main">
+            <div class="score-hero-num"><span id="result-score-num">—</span><span class="score-hero-max">/ 100</span></div>
+            <div id="result-radar" class="score-radar"></div>
+          </div>
+          <div id="result-level" class="score-hero-level"></div>
+          <div id="result-headline" class="score-hero-headline"></div>
         </div>
-        <div class="section-card">
-          <h3>五大構面總評</h3>
+
+        <!-- 亮點（做得好） -->
+        <div id="result-strengths-card" class="callout callout-good">
+          <div class="callout-title">這次做得好</div>
+          <ul id="result-strengths" class="callout-list"></ul>
+        </div>
+
+        <!-- 最該改的一件事 -->
+        <div id="result-priority-card" class="callout callout-focus">
+          <div class="callout-kicker">下次先練這個</div>
+          <div id="result-priority-title" class="callout-focus-title"></div>
+          <div id="result-priority-detail" class="callout-focus-detail"></div>
+        </div>
+
+        <!-- CTA：再練一次為主 -->
+        <div class="result-cta">
+          <button id="btn-restart" class="btn-primary btn-block">再練一次</button>
+          <div class="result-cta-row">
+            <button id="btn-goqa" class="btn-outline">去知識問答補課</button>
+            <button id="btn-share" class="btn-outline">分享給主管</button>
+          </div>
+        </div>
+
+        <!-- 細節（預設收合） -->
+        <details class="result-details">
+          <summary>看五大構面細節</summary>
           <div id="result-scores"></div>
-        </div>
-        <div class="section-card">
-          <h3>關鍵環節完成度</h3>
+        </details>
+        <details class="result-details">
+          <summary>關鍵環節完成度</summary>
           <ul id="result-checkpoints" class="checkpoint-list"></ul>
-        </div>
-        <div class="section-card">
-          <h3>可改善方向</h3>
-          <ul id="result-improvements" class="plain-list"></ul>
-        </div>
-        <div class="section-card">
-          <h3>整體評估</h3>
+        </details>
+        <details class="result-details">
+          <summary>整體評估與下一步建議</summary>
           <p id="result-overall" class="body-text"></p>
-        </div>
-        <div class="section-card">
-          <h3>下一步訓練建議</h3>
-          <table class="next-steps-table">
+          <table class="next-steps-table" style="margin-top:12px">
             <thead><tr><th>訓練方向</th><th>建議做法</th></tr></thead>
             <tbody id="result-steps"></tbody>
           </table>
-        </div>
+        </details>
+
         <p class="hint center">完整報告（含固定評分標準、逐輪原文與逐輪評分）請下載檔案</p>
         <div class="result-actions">
-          <button id="btn-docx" class="btn-primary">下載 Word</button>
-          <button id="btn-pdf" class="btn-primary">下載 PDF</button>
-          <button id="btn-share" class="btn-outline">分享給主管</button>
-          <button id="btn-restart" class="btn-outline">再練一次</button>
+          <button id="btn-docx" class="btn-outline">下載 Word</button>
+          <button id="btn-pdf" class="btn-outline">下載 PDF</button>
         </div>
       </div>
     </main>

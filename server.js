@@ -457,6 +457,18 @@ const EVAL_SCHEMA = {
     level: LEVEL,
     level_note: { type: "string" },
     overall_observation: { type: "string" },
+    headline: { type: "string", description: "一句白話總結：這位業務會什麼、差什麼。不要用 L1/L2/L3 或構面術語，像主管當面講的一句話。" },
+    strengths: { type: "array", items: { type: "string" }, description: "1~2 個這次做得好的亮點（白話、具體、引用對話）" },
+    top_priority: {
+      type: "object",
+      description: "這次最該改的『一件事』——從最弱或最關鍵的地方挑一個",
+      properties: {
+        title: { type: "string", description: "重點短語（10 字內），例如「把產品講進店長心坎裡」" },
+        detail: { type: "string", description: "為什麼＋下次具體怎麼做，兩三句" }
+      },
+      required: ["title", "detail"],
+      additionalProperties: false
+    },
     rounds: {
       type: "array",
       items: {
@@ -508,6 +520,7 @@ const EVAL_SCHEMA = {
   },
   required: [
     "constructs", "total_score", "level", "level_note", "overall_observation",
+    "headline", "strengths", "top_priority",
     "rounds", "checkpoints", "improvements", "overall_judgment", "next_steps"
   ],
   additionalProperties: false
@@ -636,6 +649,9 @@ const DEMO_EVAL = {
     "每輪結束時明確推進下一步，例如試做、示範、教育或確認品項。"
   ],
   overall_judgment: "具備基本開發架構與品牌知識，目前以產品導向為主。若能提升提問能力並在每輪推進明確下一步，可望穩定進入 L2。（此為示範模式範例，設定 API 金鑰後將產生真實評估）",
+  headline: "品牌知識夠，但太快進入介紹——先學會問出店長的需求，再開口推。",
+  strengths: ["開場有清楚說明來意與品牌立場", "有主動帶出綠色關鍵（PCR 再生瓶器）"],
+  top_priority: { title: "先問需求再介紹", detail: "這場幾乎都是你在講。下次開場後先問一句「老師目前店裡最想加強的是頭皮養護還是燙後護理？」，讓店長先說，你再對症推薦。" },
   next_steps: [
     { direction: "提問能力", method: "練習每次介紹產品前，先問出沙龍目前最想改善的服務或銷售缺口。" },
     { direction: "異議處理", method: "針對「產品很齊」「庫存壓力」「設計師很忙」建立 30 秒回應版本。" },
