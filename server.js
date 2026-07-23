@@ -791,16 +791,29 @@ function applyScoreCaps(result, history) {
     if (totalChars < 20) { cap = Math.min(cap, 10); reasons.push("內容僅寒暄或單句"); }
     if (result.total_score > cap) {
       const perConstruct = Math.floor(cap / 5);
-      (result.constructs || []).forEach((c) => {
-        c.score = Math.min(c.score, perConstruct);
-        c.mark = c.score >= 17 ? "◎" : c.score >= 12 ? "○" : "△";
-      });
+      (result.constructs || []).forEach((c) => { c.score = Math.min(c.score, perConstruct); });
       result.total_score = (result.constructs || []).reduce((s, c) => s + (c.score || 0), 0);
       if (result.total_score < 60) { result.level = "L1"; result.level_note = "未達 L1 門檻"; }
       result.overall_judgment = `${result.overall_judgment || ""}（系統依評分紀律套用總分上限 ${cap} 分：${reasons.join("、")}。）`;
     }
+    // 符號一律跟著分數走（模型偶爾給低分卻標 ○，會導致「待加強面向」抓不到 △ 而空白）
+    (result.constructs || []).forEach((c) => {
+      c.mark = c.score >= 17 ? "◎" : c.score >= 12 ? "○" : "△";
+    });
   } catch (e) { console.warn("[evaluate] 套用評分上限失敗：", e.message); }
   return result;
+}
+
+// 待加強面向：先取評 △ 的構面；一個都沒有時（全 ○ 的中段成績）取分數最低的構面，
+// 除非全部 ◎（真的沒有明顯弱項）。確保報表與 Google Sheet 永遠有可讀的待加強資訊。
+function deriveWeakAreas(constructs) {
+  const cs = constructs || [];
+  let weak = cs.filter((c) => c.mark === "△").map((c) => c.name);
+  if (!weak.length && cs.length) {
+    const min = Math.min(...cs.map((c) => (c.score != null ? c.score : 20)));
+    if (min < 17) weak = cs.filter((c) => c.score === min).map((c) => c.name);
+  }
+  return weak;
 }
 
 app.post("/api/qa", featureGate("qa", "知識問答"), async (req, res) => {
@@ -847,7 +860,7 @@ app.post("/api/records", async (req, res) => {
       level: evaluation.level,
       level_note: evaluation.level_note,
       // 待加強面向＝評為 △ 的構面
-      weak_areas: (evaluation.constructs || []).filter((c) => c.mark === "△").map((c) => c.name),
+      weak_areas: deriveWeakAreas(evaluation.constructs),
       construct_scores: (evaluation.constructs || []).map((c) => ({ name: c.name, mark: c.mark, score: c.score })),
       transcript: transcript || []   // 逐字稿（供 n8n / AI Agent 分析）
     };
