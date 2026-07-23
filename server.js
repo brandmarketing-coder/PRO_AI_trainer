@@ -1175,9 +1175,12 @@ async function runBackup(trigger, req) {
   return backupInFlight;
 }
 
-// 會觸發 Render 重新部署的操作（知識庫、名單、開關存回 GitHub）前先備份，避免部署間隔遺失紀錄
+// 會觸發 Render 重新部署的操作（知識庫、名單、開關存回 GitHub）前先備份，避免部署間隔遺失紀錄。
+// 注意：只要演練紀錄「或」指定演練繳交任一有資料就要備份（原本只看演練紀錄，
+// 導致沒有演練紀錄時繳交狀態不備份、重新部署後收錄狀態被舊備份蓋掉）。
 async function backupBeforeRedeploy() {
-  if (!useGitHub() || readRecords().length === 0) return;
+  if (!useGitHub()) return;
+  if (readRecords().length === 0 && readSubmissions().length === 0) return;
   try { await runBackup("設定變更前自動備份"); } catch (e) { console.warn("[backup] 變更前備份失敗：", e.message); }
 }
 
@@ -1489,19 +1492,30 @@ app.post("/api/admin/submission/approve", async (req, res) => {
   const s = list.find((x) => x.id === id);
   if (!s) return res.status(404).json({ error: "找不到繳交紀錄" });
   if (!s.nominated) return res.status(400).json({ error: "此繳交尚未被標記為優良候選" });
+  // 順序很重要：先寫入狀態→再備份（快照才含 approved=true）→最後寫知識庫（會觸發重新部署）。
+  // 反過來的話，重新部署後會從「收錄前」的備份還原，收錄狀態就消失了。
+  s.approved = true;
+  s.approvedAt = new Date().toISOString();
+  writeSubmissions(list);
   try {
     let existing = "";
     try { existing = await getKnowledge(EXEMPLAR_KB); } catch {}
     if (!existing) existing = "# 優良話術示範\n\n經核可收錄的業務優良演練話術，供 AI 問答與演練回饋參考。\n";
-    const block = `\n\n${exemplarHeading(s)}\n\n${s.transcript.trim()}\n`;
     await backupBeforeRedeploy();
-    await saveKnowledge(EXEMPLAR_KB, existing + block);
-    s.approved = true;
-    s.approvedAt = new Date().toISOString();
-    writeSubmissions(list);
+    // 防重複：知識檔已有同一段（例如狀態曾被舊備份蓋掉後重按收錄）就不再附加
+    if (!existing.includes(exemplarHeading(s))) {
+      const block = `\n\n${exemplarHeading(s)}\n\n${s.transcript.trim()}\n`;
+      await saveKnowledge(EXEMPLAR_KB, existing + block);
+    }
     audit("優良話術收錄", `核可並收錄：${s.name}／${s.assignmentTitle}`, role, req);
     res.json({ ok: true, filename: EXEMPLAR_KB });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) {
+    // 知識庫寫入失敗 → 回滾狀態，避免「顯示已收錄但知識庫沒有」
+    s.approved = false;
+    delete s.approvedAt;
+    writeSubmissions(list);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // ── 取消收錄：從知識庫的優良話術檔移除該段，繳交狀態退回「優良候選」──
@@ -1513,6 +1527,10 @@ app.post("/api/admin/submission/unapprove", async (req, res) => {
   const s = list.find((x) => x.id === id);
   if (!s) return res.status(404).json({ error: "找不到繳交紀錄" });
   if (!s.approved) return res.status(400).json({ error: "此繳交尚未收錄" });
+  // 同 approve：先寫狀態→備份→最後寫知識庫（會觸發重新部署），失敗回滾
+  s.approved = false;
+  delete s.approvedAt;
+  writeSubmissions(list);
   try {
     let removed = false;
     let content = "";
@@ -1530,15 +1548,17 @@ app.post("/api/admin/submission/unapprove", async (req, res) => {
         removed = true;
       }
     }
-    s.approved = false;
-    delete s.approvedAt;
-    writeSubmissions(list);
     audit("優良話術取消收錄", `${s.name}／${s.assignmentTitle}${removed ? "" : "（知識檔中未找到對應段落，可能已被手動編輯）"}`, role, req);
     res.json({
       ok: true, removed,
       note: removed ? "已從知識庫移除該段話術" : "繳交狀態已退回候選；但知識檔中找不到對應段落（可能已被手動編輯），請至知識庫管理檢視 " + EXEMPLAR_KB
     });
-  } catch (e) { res.status(500).json({ error: e.message }); }
+  } catch (e) {
+    s.approved = true;
+    s.approvedAt = new Date().toISOString();
+    writeSubmissions(list);
+    res.status(500).json({ error: e.message });
+  }
 });
 
 app.post("/api/quiz/next", featureGate("quiz", "隨機測驗"), async (req, res) => {
