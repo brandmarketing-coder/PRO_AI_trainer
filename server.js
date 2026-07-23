@@ -710,7 +710,7 @@ app.get("/api/config", (req, res) => {
     model: MODEL,
     flags,                               // 功能開關與維護公告（前端據此隱藏功能卡、顯示公告）
     archive: APPS_SCRIPT_URL ? "apps_script" : N8N_WEBHOOK_URL ? "n8n" : "none",   // 歸檔目的地（不外洩網址）
-    build: "2026-07-23-stable"            // 部署版本標記，用於確認新版已上線
+    build: "2026-07-23-verify3"            // 部署版本標記，用於確認新版已上線
   });
 });
 
