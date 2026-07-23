@@ -5,7 +5,7 @@ const path = require("path");
 require("dotenv").config({ path: path.join(__dirname, ".env") });
 const express = require("express");
 const config = require("./config/trainer-config.json");
-const { loadKnowledge, retrieve, KNOWLEDGE_DIR } = require("./knowledge");
+const { loadKnowledge, retrieve, topSections, KNOWLEDGE_DIR } = require("./knowledge");
 const prompts = require("./prompts");
 const { buildDocx, buildPdf, buildQuizReportDocx } = require("./report");
 const fs = require("fs");
@@ -812,10 +812,13 @@ app.post("/api/qa", featureGate("qa", "知識問答"), async (req, res) => {
     const userTurns = history.filter((m) => m.role === "user").length;
     if (lastUser && userTurns === 1) {
       const cached = matchFaq(lastUser.text);
-      if (cached) return res.json({ answer: cached, cached: true });
+      if (cached) return res.json({ answer: cached, cached: true, sources: ["常見問答庫"] });
     }
 
     if (!llm) return res.json({ answer: DEMO_QA });
+    // 顯示用的資料來源（與 callGen 內部檢索同一套邏輯，讓業務知道答案依據哪些知識檔、可追溯）
+    const hits = lastUser ? topSections(KNOWLEDGE.sections, lastUser.text, { limit: 3, minScore: 2 }) : [];
+    const sources = [...new Set(hits.map((h) => h.file.replace(/\.md$/i, "")))];
     const messages = history.map((m) => ({ role: m.role, content: m.text }));
     let answer = await callGen(prompts.QA_INSTRUCTIONS, messages, null, {
       maxTokens: 2000,
@@ -823,7 +826,7 @@ app.post("/api/qa", featureGate("qa", "知識問答"), async (req, res) => {
       retrieveOpts: { limit: 3, minScore: 2 }
     });
     answer = stripMarkdown(answer);
-    res.json({ answer });
+    res.json({ answer, sources });
   } catch (err) {
     console.error("qa error:", err);
     res.status(500).json({ error: err.message || "伺服器錯誤" });

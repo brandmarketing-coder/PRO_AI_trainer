@@ -158,7 +158,9 @@
     <!-- 報告產出進度 -->
     <main id="screen-progress" class="screen hidden">
       <div class="progress-wrap">
-        <div class="progress-ring"><div class="progress-ring-inner">📋</div></div>
+        <div class="progress-ring"><div class="progress-ring-inner">
+          <svg width="30" height="30" viewBox="0 0 24 24" fill="none"><rect x="5" y="3.4" width="14" height="17.2" rx="1.6" stroke="#5c7f71" stroke-width="1.7"/><path d="M8.4 8h7.2M8.4 12h7.2M8.4 16h4.6" stroke="#5c7f71" stroke-width="1.7" stroke-linecap="round"/></svg>
+        </div></div>
         <h2>Jenny 老師評估中</h2>
         <p class="hint">正在整理你的演練表現，請稍候</p>
         <div class="progress-bar"><div id="progress-fill"></div></div>
@@ -233,7 +235,9 @@
       <div id="qa-window" class="chat-window">
         <div id="qa-starter" class="qa-starter">
           <div class="qa-starter-hero">
-            <div class="qa-starter-icon">📚</div>
+            <div class="qa-starter-icon">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M12 6.2C10.6 4.9 8.7 4.3 6.3 4.3c-1 0-1.9.1-2.7.4v13.6c.8-.3 1.7-.4 2.7-.4 2.4 0 4.3.6 5.7 1.9 1.4-1.3 3.3-1.9 5.7-1.9 1 0 1.9.1 2.7.4V4.7c-.8-.3-1.7-.4-2.7-.4-2.4 0-4.3.6-5.7 1.9z" stroke="#48685c" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 6.2v13.6" stroke="#48685c" stroke-width="1.7"/></svg>
+            </div>
             <div class="qa-starter-h">有什麼想問的？</div>
             <div class="qa-starter-sub">直接打字問我，或點下面的常見問題快速開始</div>
           </div>
@@ -341,10 +345,13 @@
           <h3>繳交演練</h3>
           <p class="hint">用手機錄下你的話術（或上傳事先錄好的音檔），系統會轉成逐字稿讓你確認，再送出評分。也可以直接打字。</p>
           <label for="assign-audio" class="upload-box" id="assign-upload-box">
-            <span class="upload-icon">🎙️</span>
+            <span class="upload-icon">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="none"><rect x="9" y="3" width="6" height="11" rx="3" stroke="#48685c" stroke-width="1.7"/><path d="M5 11a7 7 0 0014 0M12 18v3M8.5 21h7" stroke="#48685c" stroke-width="1.7" stroke-linecap="round"/></svg>
+            </span>
             <span class="upload-text">點此上傳／錄製音檔<br /><span class="hint">支援 mp3／m4a／wav／webm，上限 25MB</span></span>
           </label>
-          <input id="assign-audio" type="file" accept="audio/*" capture class="hidden" />
+          <!-- 不加 capture：Android 加了會強制開錄音介面、無法選擇既有音檔 -->
+          <input id="assign-audio" type="file" accept="audio/*" class="hidden" />
           <div id="assign-transcribe-msg" class="hint"></div>
           <label class="field-label" for="assign-transcript" style="margin-top:14px">逐字稿（可修正錯字後再送出）</label>
           <textarea id="assign-transcript" rows="8" placeholder="上傳音檔後這裡會出現轉寫結果；也可以直接打字輸入你的話術。"></textarea>
@@ -479,9 +486,9 @@
             <div class="admin-block">
               <h3>功能開關與首頁公告</h3>
               <p class="hint">關閉的功能會從首頁隱藏並暫停服務（進行中的評分不受影響）；公告會顯示在首頁最上方。儲存後立即生效並永久保存。</p>
-              <label class="switch-row"><input type="checkbox" id="flag-roleplay" /><span>🎭 情境演練</span></label>
-              <label class="switch-row"><input type="checkbox" id="flag-qa" /><span>📚 知識問答</span></label>
-              <label class="switch-row"><input type="checkbox" id="flag-quiz" /><span>📝 隨機測驗</span></label>
+              <label class="switch-row"><input type="checkbox" id="flag-roleplay" /><span>情境演練</span></label>
+              <label class="switch-row"><input type="checkbox" id="flag-qa" /><span>知識問答</span></label>
+              <label class="switch-row"><input type="checkbox" id="flag-quiz" /><span>隨機測驗</span></label>
               <label class="field-label" for="flag-announcement" style="margin-top:14px">首頁公告（留空＝不顯示）</label>
               <input id="flag-announcement" type="text" maxlength="200" placeholder="例：知識庫更新中，知識問答暫停至 18:00" autocomplete="off" />
               <button id="btn-flags-save" class="btn-primary btn-block" style="margin-top:16px">儲存開關與公告</button>

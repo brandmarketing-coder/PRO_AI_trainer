@@ -120,12 +120,31 @@ const STOPWORDS = [
   "介紹", "說明", "告訴", "幫我", "想", "問", "回", "怎樣", "如果", "客人", "店長", "業務"
 ];
 
-// 依查詢字串對章節評分。作法：去填充詞→取內容詞的 2~4-gram（長詞加重權重，
+// 口語 → 知識庫詞彙的同義詞擴充。業務問「店長說太貴了」，但知識庫寫的是「價格、價值」，
+// 沒有這層轉換會查無結果。命中口語時把對應的正式詞補進查詢（原詞仍保留）。
+const SYNONYMS = [
+  [/太貴|好貴|很貴|嫌貴|盤子/, " 價格 價值 預算 變貴"],
+  [/掉髮|落髮|禿/, " 咖啡因養髮 頭皮養護"],
+  [/白髮|白頭髮/, " 麥拉寧"],
+  [/洗髮精/, " 洗髮露"],
+  [/出油|油頭|頭很油/, " 控油 頭皮"],
+  [/頭皮屑|頭癢/, " 頭皮養護 舒活"],
+  [/燙壞|髮質受損|毛躁/, " 修護 結構 護髮"],
+  [/環保|愛地球|天然/, " 綠色 永續 認證"],
+  [/退貨|換貨|保存期限/, " 售後 效期"]
+];
+function expandQuery(q) {
+  let out = q;
+  for (const [re, add] of SYNONYMS) if (re.test(q)) out += add;
+  return out;
+}
+
+// 依查詢字串對章節評分。作法：同義詞擴充→去填充詞→取內容詞的 2~4-gram（長詞加重權重，
 // 產品名等長字串命中最有代表性）→標題命中加成→高優先檔案同分排前。
 function scoreSections(sections, query, file) {
   let candidates = sections;
   if (file) candidates = candidates.filter((s) => s.file === file);
-  let q = (query || "").trim().toLowerCase();
+  let q = expandQuery((query || "").trim().toLowerCase());
   const rawFull = q;
   // 先移除填充/疑問詞，避免「有哪些、跟、多少」之類的 2-gram 污染排名
   STOPWORDS.forEach((w) => { q = q.split(w).join(" "); });
@@ -158,14 +177,20 @@ function scoreSections(sections, query, file) {
     .sort((a, b) => b.score - a.score || a.priority - b.priority);
 }
 
+// 取回最相關的前幾個章節（含來源檔名），供 retrieve 組 prompt 與 QA 顯示資料來源。
+function topSections(sections, query, { file, limit = 3, minScore = 2 } = {}) {
+  if (!sections || !sections.length) return [];
+  const scored = scoreSections(sections, query, file);
+  if (!scored.length || scored[0].score < minScore) return [];
+  return scored.slice(0, limit);
+}
+
 // 檢索並回傳可直接注入 prompt 的參考資料字串；查無足夠相關內容時回傳空字串（不注入雜訊）。
 // 這是「先檢索、再一次生成」架構的核心——取代原本讓模型多趟呼叫 search 工具的做法。
 function retrieve(sections, query, { file, limit = 3, minScore = 2, maxChars = 800 } = {}) {
-  if (!sections || !sections.length) return "";
-  const scored = scoreSections(sections, query, file);
-  if (!scored.length || scored[0].score < minScore) return "";
-  return scored
-    .slice(0, limit)
+  const hits = topSections(sections, query, { file, limit, minScore });
+  if (!hits.length) return "";
+  return hits
     .map((s) => `【${s.file}｜${s.heading}】\n${s.text.slice(0, maxChars)}`)
     .join("\n\n──────────\n\n");
 }
@@ -176,4 +201,4 @@ function searchKnowledge(sections, query, { file, limit = 3 } = {}) {
   return r || `沒有找到符合「${query}」的內容，請換個關鍵字或回答「目前資料中沒有看到明確說明」。`;
 }
 
-module.exports = { loadKnowledge, retrieve, searchKnowledge, KNOWLEDGE_DIR };
+module.exports = { loadKnowledge, retrieve, topSections, searchKnowledge, KNOWLEDGE_DIR };

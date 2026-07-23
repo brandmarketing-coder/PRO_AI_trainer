@@ -665,6 +665,12 @@ input:focus, textarea:focus {
 
 /* ── 知識問答回覆（純文字、加大字級行距、段落間距，好讀優先） ── */
 .qa-answer { font-size: 15.5px; line-height: 1.9; letter-spacing: 0.2px; }
+.qa-sources {
+  font-size: 11.5px; color: var(--stone);
+  margin: -8px 0 14px 4px;
+  padding-left: 12px;
+  border-left: 2px solid var(--mist);
+}
 
 /* ── Modal ── */
 .modal-backdrop {
@@ -820,8 +826,18 @@ input:focus, textarea:focus {
 #report-others h3, #report-submissions h3 { color: var(--forest); font-size: 16px; margin: 24px 0 12px; }
 
 /* ── 報表頂列（分頁＋登出） ── */
-.report-topbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 20px; flex-wrap: wrap; }
-.report-topbar .report-tabs { margin-bottom: 0; }
+.report-topbar { display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; margin-bottom: 20px; }
+.report-topbar .report-tabs {
+  margin-bottom: 0;
+  /* 手機：分頁改單列橫向捲動，不擠成兩行 */
+  max-width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  flex-wrap: nowrap;
+}
+.report-topbar .report-tabs::-webkit-scrollbar { display: none; }
+.report-topbar .rtab { white-space: nowrap; flex-shrink: 0; }
 .report-logout {
   appearance: none; cursor: pointer; font-family: inherit;
   font-size: 12.5px; font-weight: 700; color: var(--stone);
@@ -1026,6 +1042,23 @@ input:focus, textarea:focus {
 .bk-row.bk-warn .bk-v { color: #a15c1f; }
 .backup-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 @media (max-width: 480px) { .backup-actions { grid-template-columns: 1fr; } }
+
+/* ── 手機版後台鬆綁：窄螢幕減少內距、堆疊排列，避免擁擠 ── */
+@media (max-width: 480px) {
+  #screen-report .container { padding-left: 14px; padding-right: 14px; }
+  .admin-block { padding: 16px 14px; }
+  .rtab { padding: 9px 13px; font-size: 13.5px; }
+  .report-logout { padding: 8px 10px; font-size: 12px; }
+  .report-table { font-size: 12.5px; }
+  .report-table th, .report-table td { padding: 9px 10px; }
+  /* 題目列改上下堆疊：標題一行、動作鈕靠右一行 */
+  .asg-item { flex-direction: column; align-items: stretch; gap: 8px; }
+  .asg-item-actions { justify-content: flex-end; }
+  /* 繳交卡頭部改上下排 */
+  .sub-head { flex-direction: column; align-items: flex-start; gap: 4px; }
+  .switch-row { font-size: 14px; }
+  .bk-row { font-size: 13px; }
+}
 
 /* ── 靜態展示版提示 ── */
 .static-notice {

@@ -13,7 +13,7 @@
     ],
     themes: [
       {
-        id: "cold-call", icon: "🚪", name: "陌生開發",
+        id: "cold-call", name: "陌生開發",
         description: "開發新沙龍：第一次拜訪、破冰、品牌介紹、建立信任、處理拒絕與爭取下一步。",
         opening_by_difficulty: {
           beginner: "你好～請問你是哪間公司的？今天過來是？",
@@ -22,7 +22,7 @@
         }
       },
       {
-        id: "sentence-ender", icon: "🧊", name: "句點王模式",
+        id: "sentence-ender", name: "句點王模式",
         description: "店長有問必答，但每句話都把話題收掉、不給延續空間。訓練你用開放式提問打開對話。",
         opening_by_difficulty: {
           beginner: "你好你好，請坐。……今天是有什麼事嗎？",
@@ -31,7 +31,7 @@
         }
       },
       {
-        id: "soft-nail", icon: "🪺", name: "軟釘子模式",
+        id: "soft-nail", name: "軟釘子模式",
         description: "店長嘴上稱讚品牌卻始終不合作。訓練辨識假性興趣、把話題拉回合作。",
         opening_by_difficulty: {
           beginner: "哎唷是 O'right 的啊！你們品牌我真的很欣賞，理念做得很好。來來來坐。",
@@ -55,11 +55,11 @@
       { id: "script", name: "話術", scope: "話術訓練、L1/L2/L3 層級、可以這樣說與進階說法" }
     ],
     qaSuggestions: [
-      { id: "product", label: "產品知識", icon: "🧴", questions: ["咖啡因養髮液怎麼跟客人介紹？", "沁涼舒活洗髮露（PRO 6號）適合什麼客人？", "4S 翎羽燙跟一般燙髮差在哪？"] },
-      { id: "spec", label: "價格與規格", icon: "🏷️", questions: ["咖啡因養髮液有哪些容量跟價格？", "補充包目前有哪些包裝？", "咖啡因麥拉寧養髮液多少錢？"] },
-      { id: "green", label: "綠色關鍵", icon: "🌱", questions: ["USDA Biobased 怎麼跟店長說明？", "PCR 再生瓶器的賣點怎麼講？", "零碳綠工廠可以怎麼連結合作價值？"] },
-      { id: "script", label: "話術應對", icon: "💬", questions: ["店長說「太貴了」我可以怎麼回？", "第一次拜訪的開場白怎麼說比較好？", "客人問頭皮出油要推薦什麼？"] },
-      { id: "forbidden", label: "禁用話術", icon: "🚫", questions: ["「治療掉髮」可以講嗎？替代說法是什麼？", "抗菌相關話術有什麼限制？", "哪些醫療式宣稱絕對不能說？"] }
+      { id: "product", label: "產品知識", questions: ["咖啡因養髮液怎麼跟客人介紹？", "沁涼舒活洗髮露（PRO 6號）適合什麼客人？", "4S 翎羽燙跟一般燙髮差在哪？"] },
+      { id: "spec", label: "價格與規格", questions: ["咖啡因養髮液有哪些容量跟價格？", "補充包目前有哪些包裝？", "咖啡因麥拉寧養髮液多少錢？"] },
+      { id: "green", label: "綠色關鍵", questions: ["USDA Biobased 怎麼跟店長說明？", "PCR 再生瓶器的賣點怎麼講？", "零碳綠工廠可以怎麼連結合作價值？"] },
+      { id: "script", label: "話術應對", questions: ["店長說「太貴了」我可以怎麼回？", "第一次拜訪的開場白怎麼說比較好？", "客人問頭皮出油要推薦什麼？"] },
+      { id: "forbidden", label: "禁用話術", questions: ["「治療掉髮」可以講嗎？替代說法是什麼？", "抗菌相關話術有什麼限制？", "哪些醫療式宣稱絕對不能說？"] }
     ]
   };
 

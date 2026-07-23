@@ -148,13 +148,19 @@ document.querySelectorAll(".feature-card").forEach((btn) => {
   };
 });
 
-// 進入知識問答前清空上一次的對話與快速提問，回到起始建議畫面
+// 進入知識問答前清空上一次的對話與快速提問，回到起始建議畫面（結構與初始 HTML 一致）
 function resetQa() {
   state.qaHistory = [];
   const win = $("qa-window");
   win.innerHTML =
     '<div id="qa-starter" class="qa-starter">' +
-    '<p class="qa-starter-title">想問什麼？先從這些方向開始：</p>' +
+    '<div class="qa-starter-hero">' +
+    '<div class="qa-starter-icon">' +
+    '<svg width="26" height="26" viewBox="0 0 24 24" fill="none"><path d="M12 6.2C10.6 4.9 8.7 4.3 6.3 4.3c-1 0-1.9.1-2.7.4v13.6c.8-.3 1.7-.4 2.7-.4 2.4 0 4.3.6 5.7 1.9 1.4-1.3 3.3-1.9 5.7-1.9 1 0 1.9.1 2.7.4V4.7c-.8-.3-1.7-.4-2.7-.4-2.4 0-4.3.6-5.7 1.9z" stroke="#48685c" stroke-width="1.7" stroke-linejoin="round"/><path d="M12 6.2v13.6" stroke="#48685c" stroke-width="1.7"/></svg>' +
+    '</div>' +
+    '<div class="qa-starter-h">有什麼想問的？</div>' +
+    '<div class="qa-starter-sub">直接打字問我，或點下面的常見問題快速開始</div>' +
+    '</div>' +
     '<div id="qa-categories"></div></div>';
   $("qa-chips").classList.add("hidden");
   $("qa-chips").innerHTML = "";
@@ -253,7 +259,6 @@ function renderThemes() {
     const btn = document.createElement("button");
     btn.className = "option-card";
     btn.innerHTML =
-      `<span class="o-icon">${t.icon}</span>` +
       `<span class="o-body"><span class="o-name">${esc(t.name)}</span>` +
       `<span class="o-desc">${esc(t.description)}</span></span>`;
     btn.onclick = () => { state.themeId = t.id; state.customTopic = ""; go("rp-mode"); };
@@ -263,7 +268,6 @@ function renderThemes() {
   const custom = document.createElement("button");
   custom.className = "option-card";
   custom.innerHTML =
-    `<span class="o-icon">✏️</span>` +
     `<span class="o-body"><span class="o-name">自訂題目</span>` +
     `<span class="o-desc">自己出題：針對某個產品、活動或顧客狀況，設定想練的情境。</span></span>`;
   custom.onclick = () => { state.themeId = "custom"; $("custom-topic").value = state.customTopic || ""; go("rp-custom"); };
@@ -288,7 +292,7 @@ function renderSummary() {
   const theme = getTheme();
   const diff = CONFIG.difficulties[state.difficulty];
   $("rp-summary").innerHTML =
-    `<div class="summary-row"><span class="k">演練主題</span><span class="v">${theme.icon} ${esc(theme.name)}</span></div>` +
+    `<div class="summary-row"><span class="k">演練主題</span><span class="v">${esc(theme.name)}</span></div>` +
     (state.themeId === "custom"
       ? `<div class="summary-row"><span class="k">自訂題目</span><span class="v">${esc(state.customTopic)}</span></div>`
       : "") +
@@ -298,7 +302,7 @@ function renderSummary() {
 // 取得目前主題；自訂題目回傳合成物件（名稱固定、描述＝使用者輸入的題目）
 function getTheme() {
   if (state.themeId === "custom") {
-    return { id: "custom", icon: "✏️", name: "自訂題目", description: state.customTopic || "自訂情境" };
+    return { id: "custom", name: "自訂題目", description: state.customTopic || "自訂情境" };
   }
   return CONFIG.themes.find((t) => t.id === state.themeId);
 }
@@ -341,7 +345,7 @@ $("btn-start").onclick = () => {
 function addCorrectionBanner(note) {
   const div = document.createElement("div");
   div.className = "correction-banner";
-  div.innerHTML = `⚠️ <b>即時糾錯</b>：${esc(note)}`;
+  div.innerHTML = `<b>即時糾錯</b>：${esc(note)}`;
   $("chat-window").appendChild(div);
   scrollWin("chat-window");
 }
@@ -351,16 +355,16 @@ function addCoachBox(coaching) {
   box.className = "coach-box";
   const toggle = document.createElement("button");
   toggle.className = "coach-toggle";
-  toggle.textContent = "💡 看看怎麼說可以更好";
+  toggle.textContent = "看看怎麼說可以更好";
   const detail = document.createElement("div");
   detail.className = "coach-detail hidden";
   detail.innerHTML =
-    `<div class="c-good">📌 評價：${esc(coaching.comment)}</div>` +
-    `<div class="c-improve">▲ 調整建議：${esc(coaching.suggestion)}</div>` +
-    `<span class="c-example">💬 這句可以這樣講：${esc(coaching.better_example)}</span>`;
+    `<div class="c-good">評價：${esc(coaching.comment)}</div>` +
+    `<div class="c-improve">調整建議：${esc(coaching.suggestion)}</div>` +
+    `<span class="c-example">這句可以這樣講：${esc(coaching.better_example)}</span>`;
   toggle.onclick = () => {
     detail.classList.toggle("hidden");
-    toggle.textContent = detail.classList.contains("hidden") ? "💡 看看怎麼說可以更好" : "🔼 收起教練回饋";
+    toggle.textContent = detail.classList.contains("hidden") ? "看看怎麼說可以更好" : "收起教練回饋";
   };
   box.appendChild(toggle);
   box.appendChild(detail);
@@ -400,7 +404,7 @@ async function sendMessage() {
       state.ended = true;
       const note = document.createElement("div");
       note.className = "end-note";
-      note.textContent = "🎬 這段演練告一段落了，點右上角「結束並評分」看看你的表現！";
+      note.textContent = "這段演練告一段落了，點右上角「結束並評分」看看你的表現！";
       $("chat-window").appendChild(note);
       scrollWin("chat-window");
     }
@@ -694,7 +698,7 @@ function renderQaStarter() {
     sec.className = "qa-cat";
     const header = document.createElement("div");
     header.className = "qa-cat-label";
-    header.innerHTML = `<span class="qa-cat-icon">${cat.icon}</span>${esc(cat.label)}`;
+    header.textContent = cat.label;
     const chips = document.createElement("div");
     chips.className = "qa-cat-chips";
     cat.questions.forEach((q) => {
@@ -748,6 +752,14 @@ async function sendQa(presetText) {
     hideTyping();
     state.qaHistory.push({ role: "assistant", text: data.answer });
     addBubble("assistant", data.answer, "qa-window");
+    // 資料來源標註：讓業務知道答案依據哪些知識檔（可信、可追溯）
+    if (data.sources && data.sources.length) {
+      const src = document.createElement("div");
+      src.className = "qa-sources";
+      src.textContent = "資料來源：" + data.sources.join("、");
+      $("qa-window").appendChild(src);
+      scrollWin("qa-window");
+    }
   } catch (err) {
     hideTyping();
     toast(err.message);
@@ -768,12 +780,11 @@ $("qa-input").addEventListener("input", (e) => autosize(e.target));
 function renderQuizModules() {
   const wrap = $("quiz-module-list");
   wrap.innerHTML = "";
-  const all = [{ id: "random", name: "綜合隨機", scope: "從七大模組隨機抽題，最接近實戰", icon: "🎲" }, ...CONFIG.quizModules.map((m) => ({ ...m, icon: "📖" }))];
+  const all = [{ id: "random", name: "綜合隨機", scope: "從七大模組隨機抽題，最接近實戰" }, ...CONFIG.quizModules];
   all.forEach((m) => {
     const btn = document.createElement("button");
     btn.className = "option-card";
     btn.innerHTML =
-      `<span class="o-icon">${m.icon}</span>` +
       `<span class="o-body"><span class="o-name">${esc(m.name)}</span>` +
       `<span class="o-desc">${esc(m.scope)}</span></span>`;
     btn.onclick = () => startQuiz(m.id, m.name);
@@ -783,7 +794,6 @@ function renderQuizModules() {
   const custom = document.createElement("button");
   custom.className = "option-card";
   custom.innerHTML =
-    `<span class="o-icon">🗂</span>` +
     `<span class="o-body"><span class="o-name">自訂範圍</span>` +
     `<span class="o-desc">勾選知識庫檔案，可再指定出題方向</span></span>`;
   custom.onclick = () => {
@@ -1000,7 +1010,6 @@ function renderAssignList() {
       const btn = document.createElement("button");
       btn.className = "option-card";
       btn.innerHTML =
-        `<span class="o-icon">🎯</span>` +
         `<span class="o-body"><span class="o-name">${esc(a.title)}</span>` +
         `<span class="o-desc">${esc((a.brief || "").slice(0, 60))}${(a.brief || "").length > 60 ? "…" : ""}　·　建議 ${a.minutes || 5} 分鐘</span></span>`;
       btn.onclick = () => startAssignment(a);
@@ -1029,7 +1038,7 @@ $("assign-audio").onchange = async () => {
   const box = $("assign-upload-box");
   const msg = $("assign-transcribe-msg");
   box.classList.add("uploading");
-  msg.textContent = "🎧 轉寫中…（音檔越長越久，請稍候）";
+  msg.textContent = "轉寫中…（音檔越長越久，請稍候）";
   try {
     const b64 = await new Promise((resolve, reject) => {
       const r = new FileReader();
@@ -1419,12 +1428,12 @@ async function loadBackup() {
     const b = d.backup || {};
     const archiveLabel = b.archive === "apps_script" ? "Google Sheet（Apps Script 直連）"
       : b.archive === "n8n" ? "n8n → Google Sheet"
-      : "⚠️ 未設定（僅本機＋GitHub 備份）";
+      : "未設定（僅本機＋GitHub 備份）";
     $("backup-status").innerHTML =
       `<div class="bk-row"><span class="bk-k">情境演練紀錄</span><span class="bk-v">${b.records ?? 0} 筆</span></div>` +
       `<div class="bk-row"><span class="bk-k">指定演練繳交</span><span class="bk-v">${b.submissions ?? 0} 筆</span></div>` +
       `<div class="bk-row"><span class="bk-k">上次備份</span><span class="bk-v">${b.lastBackupAt ? fmtDateTime(b.lastBackupAt) : "本次啟動後尚未備份"}</span></div>` +
-      `<div class="bk-row"><span class="bk-k">備份位置</span><span class="bk-v">${b.store === "github" ? "GitHub（永久保存）" : "⚠️ 僅本機（未設 GITHUB_TOKEN，重新部署會遺失）"}</span></div>` +
+      `<div class="bk-row"><span class="bk-k">備份位置</span><span class="bk-v">${b.store === "github" ? "GitHub（永久保存）" : "僅本機（未設 GITHUB_TOKEN，重新部署會遺失）"}</span></div>` +
       `<div class="bk-row${b.archive === "none" ? " bk-warn" : ""}"><span class="bk-k">即時歸檔</span><span class="bk-v">${archiveLabel}</span></div>` +
       (d.admin_password_set ? "" : `<div class="bk-row bk-warn"><span class="bk-k">權限提醒</span><span class="bk-v">尚未設定 ADMIN_PASSWORD，目前主管密碼即有完整管理權限</span></div>`);
   } catch (err) {
