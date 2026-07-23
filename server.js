@@ -1475,6 +1475,11 @@ app.post("/api/admin/submission/nominate", (req, res) => {
   res.json({ ok: true, nominated: s.nominated });
 });
 
+// 收錄時寫進知識檔的段落標題（收錄與取消收錄共用同一格式，才能精準找到並移除）
+function exemplarHeading(s) {
+  return `## ${s.assignmentTitle}｜${s.name}（${new Date(s.date).toISOString().slice(0, 10)}，${s.total_score}分／${s.level}）`;
+}
+
 // ── 收錄：管理員核可 → 收錄進知識庫（流程：後台勾選優良 → 匯出給高層過目 → 回來批次收錄）──
 app.post("/api/admin/submission/approve", async (req, res) => {
   const role = gate(req, res, "admin");
@@ -1488,9 +1493,7 @@ app.post("/api/admin/submission/approve", async (req, res) => {
     let existing = "";
     try { existing = await getKnowledge(EXEMPLAR_KB); } catch {}
     if (!existing) existing = "# 優良話術示範\n\n經核可收錄的業務優良演練話術，供 AI 問答與演練回饋參考。\n";
-    const block =
-      `\n\n## ${s.assignmentTitle}｜${s.name}（${new Date(s.date).toISOString().slice(0, 10)}，${s.total_score}分／${s.level}）\n\n` +
-      `${s.transcript.trim()}\n`;
+    const block = `\n\n${exemplarHeading(s)}\n\n${s.transcript.trim()}\n`;
     await backupBeforeRedeploy();
     await saveKnowledge(EXEMPLAR_KB, existing + block);
     s.approved = true;
@@ -1498,6 +1501,43 @@ app.post("/api/admin/submission/approve", async (req, res) => {
     writeSubmissions(list);
     audit("優良話術收錄", `核可並收錄：${s.name}／${s.assignmentTitle}`, role, req);
     res.json({ ok: true, filename: EXEMPLAR_KB });
+  } catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── 取消收錄：從知識庫的優良話術檔移除該段，繳交狀態退回「優良候選」──
+app.post("/api/admin/submission/unapprove", async (req, res) => {
+  const role = gate(req, res, "admin");
+  if (!role) return;
+  const { id } = req.body || {};
+  const list = readSubmissions();
+  const s = list.find((x) => x.id === id);
+  if (!s) return res.status(404).json({ error: "找不到繳交紀錄" });
+  if (!s.approved) return res.status(400).json({ error: "此繳交尚未收錄" });
+  try {
+    let removed = false;
+    let content = "";
+    try { content = await getKnowledge(EXEMPLAR_KB); } catch {}
+    if (content) {
+      const heading = exemplarHeading(s);
+      const start = content.indexOf(heading);
+      if (start >= 0) {
+        // 移除從本段標題到下一個「## 」標題（或檔尾）之間的內容
+        const next = content.indexOf("\n## ", start + heading.length);
+        const before = content.slice(0, start).replace(/\n+$/, "\n");
+        const after = next >= 0 ? "\n" + content.slice(next + 1) : "";
+        await backupBeforeRedeploy();
+        await saveKnowledge(EXEMPLAR_KB, (before + after).trim() + "\n");
+        removed = true;
+      }
+    }
+    s.approved = false;
+    delete s.approvedAt;
+    writeSubmissions(list);
+    audit("優良話術取消收錄", `${s.name}／${s.assignmentTitle}${removed ? "" : "（知識檔中未找到對應段落，可能已被手動編輯）"}`, role, req);
+    res.json({
+      ok: true, removed,
+      note: removed ? "已從知識庫移除該段話術" : "繳交狀態已退回候選；但知識檔中找不到對應段落（可能已被手動編輯），請至知識庫管理檢視 " + EXEMPLAR_KB
+    });
   } catch (e) { res.status(500).json({ error: e.message }); }
 });
 

@@ -1283,6 +1283,7 @@ function renderSubCard(s) {
     `<div class="sub-head"><span>${check}<b>${esc(s.name)}</b>　${s.total_score}分 <span class="lv-badge">${esc(s.level || "")}</span> ${state1}</span>` +
     `<span class="sub-date">${fmtDateTime(s.date)}</span></div>` +
     `<button class="kb-btn sub-view" data-view='${esc(s.id)}'>看逐字稿與評分</button>` +
+    (s.approved ? `<button class="kb-btn kb-del" data-unapprove='${esc(s.id)}'>取消收錄</button>` : "") +
     `<div class="sub-detail hidden" id="subd-${esc(s.id)}"><pre class="sub-transcript">${esc(s.transcript)}</pre></div>` +
     `</div>`;
 }
@@ -1309,6 +1310,19 @@ function wireSubCards() {
       await api("/api/admin/submission/nominate", { password: reportPw, id: cb.dataset.nominate, nominate: cb.checked });
       reloadCurrentSubs();
     } catch (err) { toast(err.message); cb.checked = !cb.checked; }
+  });
+  box.querySelectorAll("[data-unapprove]").forEach((b) => b.onclick = () => {
+    confirmModal({
+      title: "取消收錄？",
+      body: "會從知識庫的「優良話術示範」移除這段話術，繳交狀態退回優良候選。之後仍可重新收錄。",
+      okText: "取消收錄", cancelText: "先不要"
+    }, async () => {
+      try {
+        const r = await api("/api/admin/submission/unapprove", { password: reportPw, id: b.dataset.unapprove });
+        toast(r.note || "已取消收錄");
+        reloadCurrentSubs();
+      } catch (err) { toast(err.message); }
+    });
   });
   const exportBtn = $("btn-subs-export");
   if (exportBtn) exportBtn.onclick = () => {
